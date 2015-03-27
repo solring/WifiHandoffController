@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+
+    <string name="app_name">BTChannel</string>
+    <string name="action_server">Server</string>
+    <string name="action_client">Client</string>
+    <string name="mode_server">Server Mode</string>
+    <string name="mode_client">Client Mode</string>
+    <string name="button_stop">STOP</string>
+    <string name="button_start">START</string>
+
+    <string name="start_handshake">START_HANDSHAKE</string>
+    <string name="ack_handshake">ACK_HANDSHAKE</string>
+    <string name="end_handshake">END_HANDSHAKE</string>
+    <string name="dummy">Dummy info</string>
+    <string name="accept">ACCEPT</string>
+    <string name="reject">REJECT</string>
+
+</resources>
