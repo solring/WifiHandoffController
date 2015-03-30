@@ -56,7 +56,8 @@ public class MainActivity extends Activity implements View.OnClickListener{
     private static UUID PROXY_UUID;
 
     private static final String PROXY_NAME = "XT1058";
-    private static final int REQ_BT = 777;
+    private static final int REQ_BT_SERVER = 777;
+    private static final int REQ_BT_CLIENT = 777;
     private static final int DISCOVERABLE_DURATION = 180;
     public static int TIMEOUT = 5000;
     public static int MAX_RETRY = 5;
@@ -164,39 +165,51 @@ public class MainActivity extends Activity implements View.OnClickListener{
 
         Intent enableBtDiscover = new Intent(BluetoothAdapter.ACTION_REQUEST_DISCOVERABLE);
         enableBtDiscover.putExtra(BluetoothAdapter.EXTRA_DISCOVERABLE_DURATION, DISCOVERABLE_DURATION);
-        startActivityForResult(enableBtDiscover, REQ_BT);
+        startActivityForResult(enableBtDiscover, REQ_BT_SERVER);
 
     }
+
+    private void startServer(){
+        //Get ip ap addr for the negotiation progress
+        //WifiInfo info = wifimanager.getConnectionInfo();
+        //int tmp = info.getIpAddress();
+        //ipaddr = String.format("%d.%d.%d.%d", (tmp & 0xff), (tmp >> 8 & 0xff), (tmp >> 16 & 0xff), (tmp >> 24 & 0xff));
+
+        hserver = new HandoffServer(this.mHandler, btadapter, apConfig, PROXY_UUID);
+        updateUI("onActivityResult: New handoff server thread");
+
+        hserver.start();
+    }
+
 
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent data){
-        if(requestCode==REQ_BT) {
-            if (resultCode == Activity.RESULT_CANCELED) {
-                updateUI("onActivityResult: BT cannot be enabled.");
-                return;
-            }
+        if (resultCode == Activity.RESULT_CANCELED) {
+            updateUI("onActivityResult: BT cannot be enabled.");
+            return;
+        }
+
+        if(requestCode==REQ_BT_SERVER) {
             updateUI("onActivityResult: BT enabled.");
+            startServer();
 
-            //Get ip ap addr for the negotiation progress
-            //WifiInfo info = wifimanager.getConnectionInfo();
-            //int tmp = info.getIpAddress();
-            //ipaddr = String.format("%d.%d.%d.%d", (tmp & 0xff), (tmp >> 8 & 0xff), (tmp >> 16 & 0xff), (tmp >> 24 & 0xff));
-
-            hserver = new HandoffServer(this.mHandler, btadapter, apConfig, PROXY_UUID);
-            updateUI("onActivityResult: New handoff server thread");
-
-            hserver.start();
+        }else if(requestCode == REQ_BT_CLIENT){
+            updateUI("onActivityResult: BT enabled.");
+            startClient();
         }
     }
-    /********************* End Handoff Server *******************/
+
 
     /****************** Start Handoff Client *******************/
     private void startScan(){
         if(!btadapter.isEnabled()){
             Intent enableBtIntent = new Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE);
-            startActivityForResult(enableBtIntent, REQ_BT);
-        }
+            startActivityForResult(enableBtIntent, REQ_BT_CLIENT);
+        }else
+            startClient();
+    }
 
+    private void startClient(){
         // Find paired devices
         Set<BluetoothDevice> pairedDevices = btadapter.getBondedDevices();
         updateUI("startScan: ---- List of paired devices ----");
@@ -232,7 +245,8 @@ public class MainActivity extends Activity implements View.OnClickListener{
         }
 
     }
-    /********************** End Handoff Client ***********************/
+
+
 
     /********************** Other Functions ***********************/
 

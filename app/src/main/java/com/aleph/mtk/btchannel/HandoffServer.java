@@ -77,13 +77,15 @@ public class HandoffServer extends Thread {
                 session.start();
             }
             btserver.close();
+            printui("Handoff server: Server thread canceled, close socket");
 
         }catch(IOException e){
-            printui("Handoff server ERROR: accept fail");
+            printui("Handoff server: accept fail");
+            e.printStackTrace();
 
             Message msg = new Message();
             Bundle data = new Bundle();
-            data.putString("status", String.valueOf(R.string.button_stop));
+            data.putString("status", "stopped");
             msg.setData(data);
             uihandler.sendMessage(msg);
         }
@@ -94,6 +96,11 @@ public class HandoffServer extends Thread {
     public void cancel(){
         printui("Handoff server: canceled.");
         running = false;
+        try {
+            btserver.close();
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
 
         //Stop all negotiators
         for(Negotiator n : proxies){
@@ -109,11 +116,4 @@ public class HandoffServer extends Thread {
         uihandler.sendMessage(msg);
     }
 
-    public void resetButton(){
-        Message msg = new Message();
-        Bundle data = new Bundle();
-        data.putString("status", "stopped" );
-        msg.setData(data);
-        uihandler.sendMessage(msg);
-    }
 }

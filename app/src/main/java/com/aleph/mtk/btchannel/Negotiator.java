@@ -138,14 +138,13 @@ public class Negotiator extends Thread {
                             }
                             break;
 
-                    }
-                }
+                    } //end of switch
+                }//end of while
                 /************************* End Negotiator Main ************************************/
 
-                hserver.printui("Negotiator: close socket.");
-                hserver.resetButton();
                 br.close();
                 socket.close();
+                hserver.printui("Negotiator: end of negotiator, close socket.");
 
             } catch (IOException e) {
                 hserver.printui("Negotiator: readline error");
