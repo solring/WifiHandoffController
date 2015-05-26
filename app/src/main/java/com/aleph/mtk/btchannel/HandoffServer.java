@@ -28,14 +28,17 @@ public class HandoffServer extends Thread {
     private ArrayList<Negotiator> proxies;
     private WifiConfiguration apconfig;
 
-    Handler uihandler;
+    public InfoCenter infocenter;
+    public Handler uihandler;
 
-    public HandoffServer(Handler h, BluetoothAdapter adapter, WifiConfiguration config, UUID uuid){
+    public HandoffServer(Handler h, BluetoothAdapter adapter, WifiConfiguration config, InfoCenter ic, UUID uuid){
         uihandler = h;
         btadapter = adapter;
         running = false;
         btserver = null;
         apconfig = config;
+
+        infocenter = ic;
 
         proxies = new ArrayList<Negotiator>();
 

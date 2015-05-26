@@ -2,11 +2,20 @@ package com.aleph.mtk.btchannel;
 
 import android.bluetooth.BluetoothSocket;
 import android.net.wifi.WifiConfiguration;
+import android.util.Log;
+
+import com.aleph.mtk.proxyservice.ProxyService;
+
+import org.json.JSONArray;
+import org.json.JSONException;
+import org.json.JSONObject;
 
 import java.io.BufferedReader;
+import java.io.DataOutputStream;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.PrintStream;
+import java.util.ArrayList;
 
 /**
  * Created by MTK07942 on 3/13/2015.
@@ -26,6 +35,10 @@ public class Negotiator extends Thread {
     private PrintStream ps;
     private BufferedReader br;
 
+    public ProxyService proxy;
+    //private ArrayList<String> restypes;
+    private JSONArray restypes;
+
     //basic info
     private WifiConfiguration apconfig;
 
@@ -42,6 +55,7 @@ public class Negotiator extends Thread {
 
     public void run(){
 
+        JSONObject local, remote;
         String result = "ACCEPT";
         long last, now;
         int retry = 0; //the retry number of each socket connection
@@ -81,25 +95,37 @@ public class Negotiator extends Thread {
                             ps.println("ACK_HANDSHAKE"); //send ACK
                             ps.flush();
 
+                            // Update device info here first!
+                            hserver.infocenter.updateInfo();
+
                             state = SState.CHECKING;
                             now = last = System.currentTimeMillis();
 
 
-                        case CHECKING:
+                        case CHECKING: //Exchange information and check policy
                             now = System.currentTimeMillis();
                             //wait for client info
                             if(br.ready()) {
                                 buffer = br.readLine();
-                                hserver.printui("in EXCHANGING: rcv " + buffer);
+                                hserver.printui("in CHECKING rcv: " + buffer);
+                                /*
                                 if (buffer.equalsIgnoreCase("DUMMY_INFO")) {
-                                    //Accept whatever
+                                */
+                                try{
+                                    String info = hserver.infocenter.getInfo();
+                                    local = new JSONObject(info);
+                                    remote = new JSONObject(buffer);
+
+                                    //Whatever send the SSID first
                                     ps.println(apconfig.SSID);   //send proxy local addr to client
                                     ps.flush();
 
-                                    //Check policy
-                                    result = checkPolicy(buffer);
+                                    //Check policy & get resource type
+                                    result = checkPolicy(local, remote);
 
                                     state = SState.SEND_RESULT;
+                                }catch(JSONException e){
+                                    hserver.printui("Negotiator: not in JSON format, continue to wait...");
                                 }
                             }
                             else if(now - last > MainActivity.TIMEOUT){ //TIMEOUT
@@ -112,7 +138,6 @@ public class Negotiator extends Thread {
 
                         case SEND_RESULT:
                             hserver.printui("in CHECKING: ");
-                            //call policy to check whether to accept the request (Now fixed to accept all the time)
                             ps.println(result);
                             ps.flush();
                             //running = false;
@@ -127,6 +152,10 @@ public class Negotiator extends Thread {
                                 buffer = br.readLine();
                                 hserver.printui("in WAIT_ACK: rcv " + buffer);
                                 if (buffer.equalsIgnoreCase("ACK_RESULT")) {
+
+                                    /******** Start Proxy Service here ********/
+                                    if(result.equalsIgnoreCase("ACCEPT")) startProxyServices();
+
                                     running = false; //NEGOTIATION OVER
                                 }
                             }
@@ -154,12 +183,66 @@ public class Negotiator extends Thread {
         }
     }
 
-    private String checkPolicy(String msg){
+    private void startProxyServices(){
+        // make a proxy service thread for every resource types
+        if(restypes!=null && restypes.length()>0) {
+            for(int i=0; i<restypes.length(); i++) {
+                String res = null;
+                try {
+                    res = restypes.getString(i);
+                } catch (JSONException e) {
+                    e.printStackTrace();
+                }
+                hserver.printui("Accepted, start the proxy service with resource: " + res + "......");
+                //new and start proxy thread...
+                proxy = new ProxyService(res, "0.0.0.0", 0);
+                proxy.start();
+            }
+        }
+    }
+
+    private String checkPolicy(JSONObject local, JSONObject remote){
+        String res = "REJECT";
+
+        try {
+            int l = local.getInt(InfoCenter.BATLEVEL);
+            int c = local.getInt(InfoCenter.WIFI_CLIENT_NUM);
+            int m = local.getInt(InfoCenter.MAX_BATLEVEL);
+            double p = 100.0f * (double)c/(double)m;
+
+            //get resource type here
+            String tmp = remote.getString(InfoCenter.RES_TYPE);
+            hserver.printui("JSON array: " + tmp);
+            restypes = new JSONArray(tmp);
+            //restypes = (ArrayList<String>)remote.get(InfoCenter.RES_TYPE);
+
+            int level = remote.getInt(InfoCenter.BATLEVEL);
+            int client_num = remote.getInt(InfoCenter.WIFI_CLIENT_NUM);
+            int max_level = remote.getInt(InfoCenter.MAX_BATLEVEL);
+            double percent = 100.0f * (double)level/(double)max_level;
+
+            hserver.printui("Negotiator: checkPolicy: remote bat level=" + percent + ", client_num=" + client_num);
+            hserver.printui("Negotiator: checkPolicy: local bat level=" + p + ", client_num=" + c);
+
+            /************** Main Policy Logic ***************/
+            if(percent < 90 && client_num < 10) res = "ACCEPT";
+
+            if(percent < p && client_num < 10 && c < 4) res = "ACCEPT";
+            /************ End Main Policy Logic **************/
+
+
+        }catch(JSONException e){
+            hserver.printui("Negotiator: Cannot get infos.");
+            e.printStackTrace();
+        }
+
+        //return res;
         return "ACCEPT";
     }
 
     public void cancel(){
         hserver.printui("Negotiator: canceled.");
+        proxy.cancel();
         running = false;
     }
 }

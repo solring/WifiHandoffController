@@ -12,6 +12,7 @@ import android.bluetooth.BluetoothAdapter;
 import android.bluetooth.BluetoothDevice;
 import android.content.Context;
 import android.content.IntentFilter;
+import android.os.BatteryManager;
 import android.os.Bundle;
 import android.os.Message;
 import android.util.Log;
@@ -21,10 +22,11 @@ import android.view.View;
 import android.os.Handler;
 import android.widget.Button;
 import android.widget.TextView;
-
-
+import com.aleph.mtk.proxyservice.ProxyService;
 import com.whitebyte.wifihotspotutils.WifiApManager;
 
+import java.io.DataOutputStream;
+import java.io.IOException;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.Set;
@@ -40,6 +42,8 @@ public class MainActivity extends Activity implements View.OnClickListener{
     public HandoffServer hserver;
     public HandoffClient hclient;
 
+    private InfoCenter infocenter;
+
     //BT Manager
     private BluetoothAdapter btadapter;
 
@@ -52,10 +56,11 @@ public class MainActivity extends Activity implements View.OnClickListener{
     public String ssid;
     WifiConfiguration apConfig;
 
-    //Constants
+    //Static
     private static UUID PROXY_UUID;
 
-    private static final String PROXY_NAME = "XT1058";
+    //Constants
+    private static final String PROXY_NAME = "proxy";
     private static final int REQ_BT_SERVER = 777;
     private static final int REQ_BT_CLIENT = 777;
     private static final int DISCOVERABLE_DURATION = 180;
@@ -79,10 +84,7 @@ public class MainActivity extends Activity implements View.OnClickListener{
         PROXY_UUID = new UUID(2506, 3305);
         hserver = null;
 
-        //Wi-Fi p2p manager
-        //p2pmanager = (WifiP2pManager) getSystemService(Context.WIFI_P2P_SERVICE);
-        //mChannel = p2pmanager.initialize(this, getMainLooper(), null);
-        //wReceiver = new WidiReceiver(p2pmanager, mChannel, this);
+        //Wi-Fi manager
         wifimanager = (WifiManager)getSystemService(Context.WIFI_SERVICE);
         apmanager = new WifiApManager(this);
 
@@ -90,7 +92,31 @@ public class MainActivity extends Activity implements View.OnClickListener{
         if(!apmanager.isWifiApEnabled())
             apmanager.setWifiApEnabled(null, true);
         apConfig = apmanager.getWifiApConfiguration();
+        // Fix ap route
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                while(!apmanager.isWifiApEnabled()){} //simple pin lock
+                try {
+                    Process suProcess = Runtime.getRuntime().exec("su");
+                    DataOutputStream os = new DataOutputStream(suProcess.getOutputStream());
+                    os.writeBytes("route add -net 224.0.0.0 netmask 224.0.0.0 dev ap0" + "\n");
+                    os.flush();
 
+                    os.writeBytes("exit\n");
+                    os.flush();
+
+                    int res = suProcess.waitFor();
+                    Log.v("ROOT", "change route finished");
+
+                } catch (IOException e) {
+                    Log.e("ROOT", "cannot get root access");
+                    e.printStackTrace();
+                } catch (InterruptedException e) {
+                    e.printStackTrace();
+                }
+            }
+        }).start();
 
         //get bt adapter
         //btmanager = (BluetoothManager) getSystemService(Context.BLUETOOTH_SERVICE);
@@ -135,8 +161,13 @@ public class MainActivity extends Activity implements View.OnClickListener{
                 }
             }
         };
+
+        //info center
+        infocenter = new InfoCenter(this.getApplicationContext(), apmanager, btadapter);
+        infocenter.updateInfo(); //update for the first time
     }
 
+    /*********** UI & BT scan/discover result handler**********/
     public void onClick(View v){
         if(!start){
 
@@ -155,33 +186,6 @@ public class MainActivity extends Activity implements View.OnClickListener{
         }
     }
 
-    private void updateUI(String msg){
-        Log.v("BTChannel", msg);
-        tv.append(msg + '\n');
-    }
-
-    /****************** Start Handoff Server *******************/
-    private void startBroadcast(){
-
-        Intent enableBtDiscover = new Intent(BluetoothAdapter.ACTION_REQUEST_DISCOVERABLE);
-        enableBtDiscover.putExtra(BluetoothAdapter.EXTRA_DISCOVERABLE_DURATION, DISCOVERABLE_DURATION);
-        startActivityForResult(enableBtDiscover, REQ_BT_SERVER);
-
-    }
-
-    private void startServer(){
-        //Get ip ap addr for the negotiation progress
-        //WifiInfo info = wifimanager.getConnectionInfo();
-        //int tmp = info.getIpAddress();
-        //ipaddr = String.format("%d.%d.%d.%d", (tmp & 0xff), (tmp >> 8 & 0xff), (tmp >> 16 & 0xff), (tmp >> 24 & 0xff));
-
-        hserver = new HandoffServer(this.mHandler, btadapter, apConfig, PROXY_UUID);
-        updateUI("onActivityResult: New handoff server thread");
-
-        hserver.start();
-    }
-
-
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent data){
         if (resultCode == Activity.RESULT_CANCELED) {
@@ -198,6 +202,32 @@ public class MainActivity extends Activity implements View.OnClickListener{
             startClient();
         }
     }
+
+
+
+    /****************** Start Handoff Server *******************/
+    private void startBroadcast(){
+
+        Intent enableBtDiscover = new Intent(BluetoothAdapter.ACTION_REQUEST_DISCOVERABLE);
+        enableBtDiscover.putExtra(BluetoothAdapter.EXTRA_DISCOVERABLE_DURATION, DISCOVERABLE_DURATION);
+        startActivityForResult(enableBtDiscover, REQ_BT_SERVER);
+
+    }
+
+    private void startServer(){
+        //Get ip ap addr for the negotiation progress
+        //WifiInfo info = wifimanager.getConnectionInfo();
+        //int tmp = info.getIpAddress();
+        //ipaddr = String.format("%d.%d.%d.%d", (tmp & 0xff), (tmp >> 8 & 0xff), (tmp >> 16 & 0xff), (tmp >> 24 & 0xff));
+
+        hserver = new HandoffServer(this.mHandler, btadapter, apConfig, infocenter, PROXY_UUID);
+        updateUI("onActivityResult: New handoff server thread");
+
+        hserver.start();
+    }
+
+
+
 
 
     /****************** Start Handoff Client *******************/
@@ -236,19 +266,21 @@ public class MainActivity extends Activity implements View.OnClickListener{
 
     private void connectProxy(BluetoothDevice device){
         //fixed server now
-        if(device.getName().equalsIgnoreCase(PROXY_NAME)){
+        if(device.getName().contains(PROXY_NAME)){
 
-            hclient = new HandoffClient(mHandler, device, btadapter, apmanager, wifimanager, PROXY_UUID);
+            hclient = new HandoffClient(this, mHandler, device, apmanager, wifimanager, infocenter, PROXY_UUID);
             System.out.println("Main: New handoff client thread");
 
             hclient.start();
+
+            // Cancel discovery because it will slow down the connection
+            btadapter.cancelDiscovery();
         }
 
     }
 
 
-
-    /********************** Other Functions ***********************/
+    /********************** Helper Functions ***********************/
 
     private void stopThreads(){
         if(isServer) {
@@ -271,12 +303,18 @@ public class MainActivity extends Activity implements View.OnClickListener{
         }
     }
 
+    private void updateUI(String msg){
+        Log.v("BTChannel", msg);
+        tv.append(msg + '\n');
+    }
 
     /**************** Override methods **************/
     protected void onDestroy(){
         if(!isServer)
             tryUnregisterBTDiscover();
         if(apmanager.isWifiApEnabled()) apmanager.setWifiApEnabled(null, false);
+
+        stopThreads();
         super.onDestroy();
     }
 

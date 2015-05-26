@@ -4,7 +4,7 @@
     <modules>
       <module fileurl="file://$PROJECT_DIR$/BTChannel.iml" filepath="$PROJECT_DIR$/BTChannel.iml" />
       <module fileurl="file://$PROJECT_DIR$/app/app.iml" filepath="$PROJECT_DIR$/app/app.iml" />
+      <module fileurl="file://$PROJECT_DIR$/proxyservice/proxyservice.iml" filepath="$PROJECT_DIR$/proxyservice/proxyservice.iml" />
     </modules>
   </component>
 </project>
-

@@ -3,6 +3,8 @@ package com.aleph.mtk.btchannel;
 import android.bluetooth.BluetoothAdapter;
 import android.bluetooth.BluetoothDevice;
 import android.bluetooth.BluetoothSocket;
+import android.content.Context;
+import android.content.Intent;
 import android.net.wifi.WifiConfiguration;
 import android.net.wifi.WifiInfo;
 import android.net.wifi.WifiManager;
@@ -41,6 +43,10 @@ enum CState{
 
 public class HandoffClient extends Thread {
 
+    public final static String INIT_OIC_STACK = "org.iotivity.base.examples.INIT_OIC_STACK";
+    public final static String INIT_OIC_STACK_PROXY = "org.iotivity.base.examples.INIT_OIC_STACK_PROXY";
+    public final static String STOP_CLIENT = "org.iotivity.base.examples.STOP_CLIENT";
+
     Handler uihandler;
 
     //for negotiation
@@ -48,9 +54,11 @@ public class HandoffClient extends Thread {
     boolean running;
     private BluetoothDevice btdevice;
     private BluetoothSocket socket;
-    private BluetoothAdapter btadapter;
+    //private BluetoothAdapter btadapter;
     private WifiApManager apmanager;
     private WifiManager wmanager;
+    private InfoCenter infocenter;
+    private Context mContext;
 
     //for hand-off
     public String ssid;
@@ -67,14 +75,16 @@ public class HandoffClient extends Thread {
     String buffer;
 
 
-    public HandoffClient(Handler h, BluetoothDevice device, BluetoothAdapter adapter, WifiApManager _apmanager, WifiManager _wmanager, UUID uuid){
+    public HandoffClient(Context context, Handler h, BluetoothDevice device, WifiApManager _apmanager, WifiManager _wmanager, InfoCenter ic, UUID uuid){
 
+        mContext = context;
         running = false;
         btdevice = device;
         uihandler = h;
-        btadapter = adapter;
+        //btadapter = adapter;
         apmanager = _apmanager;
         wmanager = _wmanager;
+        infocenter = ic;
         BluetoothSocket tmp = null;
         state = CState.INIT;
 
@@ -93,8 +103,6 @@ public class HandoffClient extends Thread {
         int retry = 0; //the retry number of each socket connection
         last = now = System.currentTimeMillis();
         running = true;
-        // Cancel discovery because it will slow down the connection
-        btadapter.cancelDiscovery();
 
         // Try to lock the data servers to hand
         boolean success  = lockResourceServer();
@@ -133,6 +141,7 @@ public class HandoffClient extends Thread {
                     case INIT: // proxy found, send pkt. to start handshake
                         ps.println("START_HANDSHAKE");
                         ps.flush();
+                        infocenter.updateInfo(); //trigger update first before actually get the info.
 
                         state = CState.HANDSHAKE;
                         now = last = System.currentTimeMillis();
@@ -158,8 +167,12 @@ public class HandoffClient extends Thread {
                         break;
 
                     case EXCHANGING:
+                        //stop local clients first
+                        notifyOICClients(STOP_CLIENT);
+
                         //client send info to server first
-                        ps.println("DUMMY_INFO");
+                        String info = infocenter.getInfo();
+                        ps.println(info);
                         ps.flush();
 
                         state = CState.WAITING;
@@ -182,6 +195,8 @@ public class HandoffClient extends Thread {
                             } else if (buffer.equalsIgnoreCase("REJECT")) {
                                 printui("--------- REJECTED!!!!! QQ");
                                 ps.println("ACK_RESULT");ps.flush();
+
+                                notifyOICClients(INIT_OIC_STACK);
                                 running = false;
 
                             } else {
@@ -202,6 +217,7 @@ public class HandoffClient extends Thread {
                     case HANDOFF:
                         //Start actual hand-off process
                         handOffWifi();
+                        notifyOICClients(INIT_OIC_STACK_PROXY);
                         running = false;
                         break;
                 }
@@ -248,7 +264,7 @@ public class HandoffClient extends Thread {
                     name = c.getDevice();
 
                     printui("--- in getClientList ---");
-                    printui("  ip=" + ip + ", mac=" + mac + ", device="+name);
+                    printui("  ip=" + ip + ", mac=" + mac + ", device=" + name);
                     targets.add(ip);
                 }
                 ready = true;
@@ -341,6 +357,11 @@ public class HandoffClient extends Thread {
             printui("ERROR: enable network fail");
         }
     }
+
+    /* **************************************************************
+     * Helper function of hand-off progress.
+     * Check if the Wi-fi configureation already exists
+     * **************************************************************/
     private WifiConfiguration isExsits(String SSID)
     {
         List<WifiConfiguration> existingConfigs = wmanager.getConfiguredNetworks();
@@ -354,12 +375,20 @@ public class HandoffClient extends Thread {
         return null;
     }
 
+    private void notifyOICClients(String action){
+        printui("Notify all clients ..." + action);
+        Intent notify = new Intent(action);
+        mContext.sendBroadcast(notify);
+    }
+
+
     public void cancel(){
             printui("thread canceled.");
             running = false;
             //if(socket!=null) socket.close();
     }
 
+    /************************** UI functions ***************************/
     public void printui(String str){
         System.out.println("Handoff client:" + str);
         Message msg = new Message();
