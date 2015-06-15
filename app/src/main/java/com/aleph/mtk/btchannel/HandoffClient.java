@@ -5,6 +5,9 @@ import android.bluetooth.BluetoothDevice;
 import android.bluetooth.BluetoothSocket;
 import android.content.Context;
 import android.content.Intent;
+import android.net.ConnectivityManager;
+import android.net.NetworkInfo;
+import android.net.wifi.SupplicantState;
 import android.net.wifi.WifiConfiguration;
 import android.net.wifi.WifiInfo;
 import android.net.wifi.WifiManager;
@@ -27,6 +30,7 @@ import java.lang.reflect.Array;
 import java.net.DatagramPacket;
 import java.net.DatagramSocket;
 import java.net.InetAddress;
+import java.net.Socket;
 import java.net.SocketException;
 import java.net.UnknownHostException;
 import java.util.ArrayList;
@@ -42,6 +46,60 @@ enum CState{
 }
 
 public class HandoffClient extends Thread {
+
+    public class CommandThread extends Thread{
+
+        private String target = "";
+        private int port = 0;
+        private String TAG = "CommandThread";
+
+        public CommandThread(String ip, int _port){
+            target = ip;
+            port = _port;
+        }
+
+        public void run(){
+
+            BufferedReader reader;
+            PrintStream printf;
+            boolean success = false;
+            Log.d(TAG, "command channel of " +  target + "start");
+
+            try {
+                Socket socket = new Socket(target, port);
+                Log.d(TAG, "connect to target " +  target);
+
+                reader = new BufferedReader(new InputStreamReader(socket.getInputStream()));
+                printf = new PrintStream(socket.getOutputStream());
+
+                while(!success) {
+
+                    printf.println(ssid);
+                    printf.flush();
+                    Log.d(TAG, "send command to " + target + ":" + remoteport);
+
+                    String res = reader.readLine(); //blocking
+                    Log.d(TAG, "received from " + target + ":" + remoteport);
+                    if (res.equalsIgnoreCase("ACK")) {
+                        Log.d(TAG, "received ACK from " + target + ":" + remoteport);
+                        success = true;
+                    }
+
+                }
+                printf.close();
+                reader.close();
+                socket.close();
+
+                //Log.d(TAG, "send to " + target + ":" + remoteport);
+            } catch (UnknownHostException e) {
+                Log.e(TAG, "TCP socket fail: cannot find host" + target, e);
+            } catch (SocketException e2){
+                Log.e(TAG, "Init TCP socket fail: " + target, e2);
+            } catch (IOException e3){
+                Log.e("handOffWifi", "IO error fail", e3);
+            }
+        }
+    }
 
     public final static String INIT_OIC_STACK = "org.iotivity.base.examples.INIT_OIC_STACK";
     public final static String INIT_OIC_STACK_PROXY = "org.iotivity.base.examples.INIT_OIC_STACK_PROXY";
@@ -103,14 +161,6 @@ public class HandoffClient extends Thread {
         int retry = 0; //the retry number of each socket connection
         last = now = System.currentTimeMillis();
         running = true;
-
-        // Try to lock the data servers to hand
-        boolean success  = lockResourceServer();
-        if(!success){
-            printui("Cannot lock resource server");
-            resetButton();
-            return;
-        }
 
         try {
             // Connect the device through the socket. This will block
@@ -216,8 +266,13 @@ public class HandoffClient extends Thread {
 
                     case HANDOFF:
                         //Start actual hand-off process
+                        //This will block until Wi-Fi is associated
                         handOffWifi();
-                        notifyOICClients(INIT_OIC_STACK_PROXY);
+                        closeAPlist();
+
+                        //re-init OIC clients
+                        notifyOICClients(INIT_OIC_STACK_PROXY); // may move to connectProxyWifi()?
+
                         running = false;
                         break;
                 }
@@ -234,11 +289,6 @@ public class HandoffClient extends Thread {
             e.printStackTrace();
         }
         return;
-    }
-
-    private boolean lockResourceServer(){
-
-        return true;
     }
 
 
@@ -273,13 +323,27 @@ public class HandoffClient extends Thread {
 
 
         while(!ready){}//spin lock
+        Log.d("HandoffClient", "starting command threads...");
         //send hand-off command to handed clients
-        for(String t : targets) sendToServer(t);
+        ArrayList<CommandThread> ths = new ArrayList();
+        for(String ip : targets) {
+            CommandThread th = new CommandThread(ip, remoteport);
+            th.start();
+            ths.add(th);
+            //sendToServer(ip);
+        }
+        for(CommandThread t : ths) {
+            try {
+                t.join();
+            } catch (InterruptedException e) {
+                e.printStackTrace();
+            }
+        }
+        printui("All AP clients notified.");
 
         //try to connect to hand-off server
         connectProxyWifi();
 
-        return;
     }
 
     /* **************************************************************
@@ -288,6 +352,7 @@ public class HandoffClient extends Thread {
      * Currently send the target SSID only to the devices to be handed
      * **************************************************************/
     public void sendToServer(String ip){
+        /*
         byte[] msg = ssid.getBytes(); //get from hand-off server (proxy)
 
         //send hand-off command to client
@@ -297,7 +362,9 @@ public class HandoffClient extends Thread {
             DatagramPacket data = new DatagramPacket(msg, msg.length, addr, remoteport);
             printui("send to "+ip+":"+remoteport);
             udpsocket.send(data);
-            printui("after send");
+
+            //wait for ack
+
             udpsocket.close();
         } catch (UnknownHostException e) {
             Log.e("handOffWifi", "UDP socket fail: cannot find host", e);
@@ -306,6 +373,7 @@ public class HandoffClient extends Thread {
         } catch (IOException e3){
             Log.e("handOffWifi", "IO error fail", e3);
         }
+        */
     }
 
     /* **************************************************************
@@ -314,6 +382,7 @@ public class HandoffClient extends Thread {
      * **************************************************************/
     public void connectProxyWifi(){
         WifiInfo info = wmanager.getConnectionInfo();
+
         int origin = info.getNetworkId();
         int target = origin;
 
@@ -353,6 +422,18 @@ public class HandoffClient extends Thread {
         //Try to connect to the hand-off server
         if(wmanager.enableNetwork(target, true)){
             printui("enable network "+ target + " success");
+            //simple spin lock
+            //while(wmanager.getConnectionInfo().getSupplicantState()!= SupplicantState.COMPLETED){}
+            ConnectivityManager connManager = (ConnectivityManager) mContext.getSystemService(Context.CONNECTIVITY_SERVICE);
+            while(true){
+                NetworkInfo netinfo = connManager.getNetworkInfo(ConnectivityManager.TYPE_WIFI);
+                if(netinfo!=null){
+                    if(netinfo.isConnected()) break;
+                }else{
+                    Log.w("HandoffClient", "network info == null");
+                }
+            }
+            printui("New wifi ap connected.");
         }else{
             printui("ERROR: enable network fail");
         }
@@ -376,7 +457,7 @@ public class HandoffClient extends Thread {
     }
 
     private void notifyOICClients(String action){
-        printui("Notify all clients ..." + action);
+        printui("Notify all Iotivity clients ..." + action);
         Intent notify = new Intent(action);
         mContext.sendBroadcast(notify);
     }
@@ -402,6 +483,14 @@ public class HandoffClient extends Thread {
         Message msg = new Message();
         Bundle data = new Bundle();
         data.putString("status", "stopped" );
+        msg.setData(data);
+        uihandler.sendMessage(msg);
+    }
+
+    public void closeAPlist(){
+        Message msg = new Message();
+        Bundle data = new Bundle();
+        data.putString("status", "clear-list" );
         msg.setData(data);
         uihandler.sendMessage(msg);
     }

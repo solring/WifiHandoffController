@@ -1,5 +1,6 @@
 package com.aleph.mtk.btchannel;
 
+import android.app.ListActivity;
 import android.net.wifi.WifiConfiguration;
 import android.net.wifi.WifiInfo;
 import android.net.wifi.p2p.WifiP2pManager;
@@ -21,6 +22,7 @@ import android.view.MenuItem;
 import android.view.View;
 import android.os.Handler;
 import android.widget.Button;
+import android.widget.ListAdapter;
 import android.widget.TextView;
 import com.aleph.mtk.proxyservice.ProxyService;
 import com.whitebyte.wifihotspotutils.WifiApManager;
@@ -33,12 +35,13 @@ import java.util.Set;
 import java.util.UUID;
 
 
-public class MainActivity extends Activity implements View.OnClickListener{
+public class MainActivity extends ListActivity implements View.OnClickListener{
 
     private boolean start;
     private boolean isServer=true;
     private ArrayList<String> devices;
     private BroadcastReceiver mReceiver;
+    private BroadcastReceiver ctrlReceiver;
     public HandoffServer hserver;
     public HandoffClient hclient;
 
@@ -66,12 +69,16 @@ public class MainActivity extends Activity implements View.OnClickListener{
     private static final int DISCOVERABLE_DURATION = 180;
     public static int TIMEOUT = 5000;
     public static int MAX_RETRY = 5;
+    public final static String ACTION_START = "com.mtk.aleph.btchannel.START";
+    public final static String ACTION_STOP = "com.mtk.aleph.btchannel.STOP";
 
     //GUI
     public Handler mHandler;
     public Button startB;
     public TextView tv;
     public TextView mode;
+    public ClientListAdapter mAdapter;
+    public UIUpdateThread listUpdater;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -92,6 +99,7 @@ public class MainActivity extends Activity implements View.OnClickListener{
         if(!apmanager.isWifiApEnabled())
             apmanager.setWifiApEnabled(null, true);
         apConfig = apmanager.getWifiApConfiguration();
+
         // Fix ap route
         new Thread(new Runnable() {
             @Override
@@ -110,7 +118,24 @@ public class MainActivity extends Activity implements View.OnClickListener{
                     Log.v("ROOT", "change route finished");
 
                 } catch (IOException e) {
-                    Log.e("ROOT", "cannot get root access");
+                    Log.e("ROOT", "cannot get root access, try to change directly");
+                    try {
+                        Process suProcess = Runtime.getRuntime().exec("sh");
+                        DataOutputStream os = new DataOutputStream(suProcess.getOutputStream());
+                        os.writeBytes("route add -net 224.0.0.0 netmask 224.0.0.0 dev ap0" + "\n");
+                        os.flush();
+
+                        os.writeBytes("exit\n");
+                        os.flush();
+
+                        int res = suProcess.waitFor();
+                        Log.v("ROOT", "change route finished");
+
+                    }catch (IOException e1) {
+
+                    }catch (InterruptedException e2) {
+                        e2.printStackTrace();
+                    }
                     e.printStackTrace();
                 } catch (InterruptedException e) {
                     e.printStackTrace();
@@ -122,29 +147,6 @@ public class MainActivity extends Activity implements View.OnClickListener{
         //btmanager = (BluetoothManager) getSystemService(Context.BLUETOOTH_SERVICE);
         //btadapter = btmanager.getAdapter();
         btadapter = BluetoothAdapter.getDefaultAdapter();
-
-        //initiate UI
-        mode = (TextView) findViewById(R.id.text1);
-        startB = (Button) findViewById(R.id.button1);
-        startB.setOnClickListener(this);
-        tv = (TextView)findViewById(R.id.text2);
-
-        mHandler = new Handler(){
-            public void handleMessage(Message msg){
-
-                String tmp = msg.getData().getString("status");
-                //Control buttons
-                if(tmp!=null && tmp.equalsIgnoreCase("stopped")){
-
-                    startB.setText(R.string.button_start);
-                    start=false;
-
-                }else {
-                    updateUI(msg.getData().getString("data") + "\n");
-                }
-                super.handleMessage(msg);
-            }
-        };
 
         // Create a BroadcastReceiver for BT ACTION_FOUND
         mReceiver = new BroadcastReceiver() {
@@ -162,6 +164,68 @@ public class MainActivity extends Activity implements View.OnClickListener{
             }
         };
 
+        ctrlReceiver = new BroadcastReceiver() {
+            @Override
+            public void onReceive(Context context, Intent intent) {
+                String action = intent.getAction();
+                if (action.equals(ACTION_START)){
+                    Log.v("BTChannel", "Receive msg action_start");
+                    if(!start){
+                        pause(10);
+                        startB.setText(R.string.button_stop);
+                        start=true;
+
+                        if(isServer) startBroadcast();
+                        else startScan();
+
+                    }
+                }else if (ACTION_START.equals(action)){
+                    Log.v("BTChannel", "Receive msg action_stop");
+                    if(start){
+                        startB.setText(R.string.button_start);
+                        start=false;
+                        stopThreads();
+                    }
+                }
+            }
+        };
+        IntentFilter filter = new IntentFilter(ACTION_START);
+        filter.addAction(ACTION_STOP);
+        registerReceiver(ctrlReceiver, filter);
+
+        //initiate UI
+        mode = (TextView) findViewById(R.id.text1);
+        startB = (Button) findViewById(R.id.button1);
+        startB.setOnClickListener(this);
+        tv = (TextView)findViewById(R.id.text2);
+
+        mHandler = new Handler(){
+            public void handleMessage(Message msg){
+
+                String tmp = msg.getData().getString("status");
+                //Control buttons
+                if(tmp!=null){
+                    if(tmp.equalsIgnoreCase("stopped")){
+                        startB.setText(R.string.button_start);
+                        start = false;
+                    }else if (tmp.equalsIgnoreCase("clear-list")){
+                        if(listUpdater!=null) listUpdater.cancel();
+                        mAdapter.clear();
+                        mAdapter.updateListView();
+                    }
+                }else {
+                    updateUI(msg.getData().getString("data") + "\n");
+                }
+                super.handleMessage(msg);
+            }
+        };
+
+        //list view & update thread
+        mAdapter = new ClientListAdapter(this);
+        setListAdapter(mAdapter);
+        listUpdater = new UIUpdateThread(apmanager, mAdapter);
+        listUpdater.start();
+
         //info center
         infocenter = new InfoCenter(this.getApplicationContext(), apmanager, btadapter);
         infocenter.updateInfo(); //update for the first time
@@ -175,7 +239,10 @@ public class MainActivity extends Activity implements View.OnClickListener{
             start=true;
 
             if(isServer) startBroadcast();
-            else startScan();
+            else{
+                pause(10);
+                startScan();
+            }
 
         }else{
 
@@ -310,8 +377,10 @@ public class MainActivity extends Activity implements View.OnClickListener{
 
     /**************** Override methods **************/
     protected void onDestroy(){
+        listUpdater.cancel();
         if(!isServer)
             tryUnregisterBTDiscover();
+        unregisterReceiver(ctrlReceiver);
         if(apmanager.isWifiApEnabled()) apmanager.setWifiApEnabled(null, false);
 
         stopThreads();
@@ -347,7 +416,14 @@ public class MainActivity extends Activity implements View.OnClickListener{
         return super.onOptionsItemSelected(item);
     }
 
-
+    private void pause(int sec){
+        if (sec == 0) return;
+        try {
+            Thread.sleep(sec * 1000);
+        } catch (InterruptedException e) {
+            e.printStackTrace();
+        }
+    }
 
 
 }

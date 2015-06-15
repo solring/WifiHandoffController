@@ -4,8 +4,8 @@
     <string name="app_name">BTChannel</string>
     <string name="action_server">Server</string>
     <string name="action_client">Client</string>
-    <string name="mode_server">Server Mode</string>
-    <string name="mode_client">Client Mode</string>
+    <string name="mode_server">Proxy Server</string>
+    <string name="mode_client">Proxy Client</string>
     <string name="button_stop">STOP</string>
     <string name="button_start">START</string>
 
