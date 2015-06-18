@@ -32,6 +32,7 @@ import java.net.DatagramSocket;
 import java.net.InetAddress;
 import java.net.Socket;
 import java.net.SocketException;
+import java.net.SocketTimeoutException;
 import java.net.UnknownHostException;
 import java.util.ArrayList;
 import java.util.List;
@@ -45,6 +46,13 @@ enum CState{
     INIT, HANDSHAKE, EXCHANGING, EXCHANGING2, WAITING, HANDOFF
 }
 
+
+/* **************************************************************
+  * Helper class of hand-off progress.
+  * Send hand-off commands asynchronously using Thread.
+  * Retry until ACK received or timeout
+  * Currently send the target SSID only to the devices to be handed
+  * **************************************************************/
 public class HandoffClient extends Thread {
 
     public class CommandThread extends Thread{
@@ -52,6 +60,9 @@ public class HandoffClient extends Thread {
         private String target = "";
         private int port = 0;
         private String TAG = "CommandThread";
+        private final static int TIMEOUT_MILL = 10000; //10 secs
+
+
 
         public CommandThread(String ip, int _port){
             target = ip;
@@ -59,7 +70,11 @@ public class HandoffClient extends Thread {
         }
 
         public void run(){
+            sendToServerUDP(target);
+            //sendToServerTCP
+        }
 
+        public void sendToServerTCP(){
             BufferedReader reader;
             PrintStream printf;
             boolean success = false;
@@ -99,11 +114,66 @@ public class HandoffClient extends Thread {
                 Log.e("handOffWifi", "IO error fail", e3);
             }
         }
+
+        public void sendToServerUDP(String ip){
+
+            byte[] buffer = new byte[255];
+
+            double startTime = System.currentTimeMillis();
+            double now = startTime;
+            //send hand-off command to client
+            try {
+                InetAddress addr = InetAddress.getByName(ip);
+                DatagramSocket udpsocket = new DatagramSocket();
+                udpsocket.setSoTimeout(1000);  //retry every sec.
+
+                //String tmp = ssid + "/" + udpsocket.getPort();
+                byte[] msg = ssid.getBytes(); //get from hand-off server (proxy)
+                DatagramPacket p = new DatagramPacket(buffer, buffer.length);
+                DatagramPacket data = new DatagramPacket(msg, msg.length, addr, remoteport);
+
+                while(true) {
+                    try{
+                        printui("send to " + ip + ":" + remoteport);
+                        udpsocket.send(data);
+
+                        udpsocket.receive(p);
+                        String res = new String(buffer, 0, p.getLength());
+                        if(res.contains("ACK")) break;
+
+                        //wait for ack
+                    }catch(SocketTimeoutException e){
+
+                        //break if timeout
+                        now = System.currentTimeMillis();
+                        if(now - startTime > TIMEOUT_MILL) {
+                            Log.w(TAG, "send to " + ip + " time up, abort this thread...");
+                            abortFlag = true;
+                            break;
+                        }
+
+                        Log.w(TAG, "Receive UDP packet timeout, try again...");
+
+                    }catch (IOException e3) {
+                        Log.e("handOffWifi", "IO error fail, break", e3);
+                        break;
+                    }
+                }
+                udpsocket.close();
+
+            } catch (UnknownHostException e) {
+                Log.e("handOffWifi", "UDP socket fail: cannot find host", e);
+            } catch (SocketException e2) {
+                Log.e("handOffWifi", "Init socket fail", e2);
+            }
+        }
     }
 
     public final static String INIT_OIC_STACK = "org.iotivity.base.examples.INIT_OIC_STACK";
     public final static String INIT_OIC_STACK_PROXY = "org.iotivity.base.examples.INIT_OIC_STACK_PROXY";
     public final static String STOP_CLIENT = "org.iotivity.base.examples.STOP_CLIENT";
+
+    public final static String TAG = "HandoffClient";
 
     Handler uihandler;
 
@@ -124,6 +194,7 @@ public class HandoffClient extends Thread {
     public static int remoteport = 6789;
     public ArrayList<String> targets;
     public boolean ready = false;
+    public boolean abortFlag = false;
 
     /**** IO *****/
     PrintStream ps;
@@ -269,9 +340,9 @@ public class HandoffClient extends Thread {
                         //This will block until Wi-Fi is associated
                         handOffWifi();
                         closeAPlist();
-
                         //re-init OIC clients
-                        notifyOICClients(INIT_OIC_STACK_PROXY); // may move to connectProxyWifi()?
+                        //notifyOICClients(INIT_OIC_STACK_PROXY);
+                        notifyOICClients(INIT_OIC_STACK);
 
                         running = false;
                         break;
@@ -300,9 +371,11 @@ public class HandoffClient extends Thread {
     private void handOffWifi(){
         targets = new ArrayList<String>();
         ready = false;
+        abortFlag = false;
 
         //TEMP: list all connected hot-spot clients
         //targets here should be provided by the proxy
+
         apmanager.getClientList(false, new FinishScanListener() {
             @Override
             public void onFinishScan(final ArrayList<ClientScanResult> clients) {
@@ -320,9 +393,9 @@ public class HandoffClient extends Thread {
                 ready = true;
             }
         });
-
-
         while(!ready){}//spin lock
+
+
         Log.d("HandoffClient", "starting command threads...");
         //send hand-off command to handed clients
         ArrayList<CommandThread> ths = new ArrayList();
@@ -339,42 +412,17 @@ public class HandoffClient extends Thread {
                 e.printStackTrace();
             }
         }
-        printui("All AP clients notified.");
 
+        if(abortFlag) {
+            printui("Not all AP clients handed over successfully");
+        }
+        printui("All AP clients notified.");
         //try to connect to hand-off server
         connectProxyWifi();
 
     }
 
-    /* **************************************************************
-     * Helper function of hand-off progress.
-     * Send hand-off commands through UDP
-     * Currently send the target SSID only to the devices to be handed
-     * **************************************************************/
-    public void sendToServer(String ip){
-        /*
-        byte[] msg = ssid.getBytes(); //get from hand-off server (proxy)
 
-        //send hand-off command to client
-        try {
-            InetAddress addr = InetAddress.getByName(ip);
-            DatagramSocket udpsocket = new DatagramSocket();
-            DatagramPacket data = new DatagramPacket(msg, msg.length, addr, remoteport);
-            printui("send to "+ip+":"+remoteport);
-            udpsocket.send(data);
-
-            //wait for ack
-
-            udpsocket.close();
-        } catch (UnknownHostException e) {
-            Log.e("handOffWifi", "UDP socket fail: cannot find host", e);
-        } catch (SocketException e2){
-            Log.e("handOffWifi", "Init socket fail", e2);
-        } catch (IOException e3){
-            Log.e("handOffWifi", "IO error fail", e3);
-        }
-        */
-    }
 
     /* **************************************************************
      * Helper function of hand-off progress.
@@ -422,6 +470,7 @@ public class HandoffClient extends Thread {
         //Try to connect to the hand-off server
         if(wmanager.enableNetwork(target, true)){
             printui("enable network "+ target + " success");
+
             //simple spin lock
             //while(wmanager.getConnectionInfo().getSupplicantState()!= SupplicantState.COMPLETED){}
             ConnectivityManager connManager = (ConnectivityManager) mContext.getSystemService(Context.CONNECTIVITY_SERVICE);
@@ -434,6 +483,7 @@ public class HandoffClient extends Thread {
                 }
             }
             printui("New wifi ap connected.");
+
         }else{
             printui("ERROR: enable network fail");
         }

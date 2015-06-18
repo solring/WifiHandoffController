@@ -1,6 +1,8 @@
 package com.aleph.mtk.btchannel;
 
+import android.app.AlarmManager;
 import android.app.ListActivity;
+import android.app.PendingIntent;
 import android.net.wifi.WifiConfiguration;
 import android.net.wifi.WifiInfo;
 import android.net.wifi.p2p.WifiP2pManager;
@@ -16,6 +18,7 @@ import android.content.IntentFilter;
 import android.os.BatteryManager;
 import android.os.Bundle;
 import android.os.Message;
+import android.os.SystemClock;
 import android.util.Log;
 import android.view.Menu;
 import android.view.MenuItem;
@@ -25,12 +28,16 @@ import android.widget.Button;
 import android.widget.ListAdapter;
 import android.widget.TextView;
 import com.aleph.mtk.proxyservice.ProxyService;
+import com.whitebyte.wifihotspotutils.ClientScanResult;
+import com.whitebyte.wifihotspotutils.FinishScanListener;
 import com.whitebyte.wifihotspotutils.WifiApManager;
 
 import java.io.DataOutputStream;
 import java.io.IOException;
 import java.lang.reflect.Method;
+import java.text.SimpleDateFormat;
 import java.util.ArrayList;
+import java.util.Date;
 import java.util.Set;
 import java.util.UUID;
 
@@ -63,6 +70,7 @@ public class MainActivity extends ListActivity implements View.OnClickListener{
     private static UUID PROXY_UUID;
 
     //Constants
+    private static final String TAG = "BTChannel";
     private static final String PROXY_NAME = "proxy";
     private static final int REQ_BT_SERVER = 777;
     private static final int REQ_BT_CLIENT = 777;
@@ -71,7 +79,15 @@ public class MainActivity extends ListActivity implements View.OnClickListener{
     public static int MAX_RETRY = 5;
     public final static String ACTION_START = "com.mtk.aleph.btchannel.START";
     public final static String ACTION_STOP = "com.mtk.aleph.btchannel.STOP";
+    public final static String ACTION_TURBO_OFF = "com.mtk.aleph.btchannel.TURBO_OFF";
 
+    public static final String MSG_COMMAND = "status";
+    public static final String MSG_PRINT = "data";
+    public static final String CMD_CLEARLIST = "clear-list";
+    public static final String CMD_UPDATELIST = "update-list";
+    public static final String CMD_STOP = "stopped";
+    
+    
     //GUI
     public Handler mHandler;
     public Button startB;
@@ -179,18 +195,21 @@ public class MainActivity extends ListActivity implements View.OnClickListener{
                         else startScan();
 
                     }
-                }else if (ACTION_START.equals(action)){
+                }else if (ACTION_STOP.equals(action)){
                     Log.v("BTChannel", "Receive msg action_stop");
                     if(start){
                         startB.setText(R.string.button_start);
                         start=false;
                         stopThreads();
                     }
+                }else if(ACTION_TURBO_OFF.equals(action)){
+                    if(listUpdater!=null)listUpdater.resetPeriod();
                 }
             }
         };
         IntentFilter filter = new IntentFilter(ACTION_START);
         filter.addAction(ACTION_STOP);
+        filter.addAction(ACTION_TURBO_OFF);
         registerReceiver(ctrlReceiver, filter);
 
         //initiate UI
@@ -202,19 +221,21 @@ public class MainActivity extends ListActivity implements View.OnClickListener{
         mHandler = new Handler(){
             public void handleMessage(Message msg){
 
-                String tmp = msg.getData().getString("status");
+                String tmp = msg.getData().getString(MSG_COMMAND);
                 //Control buttons
                 if(tmp!=null){
-                    if(tmp.equalsIgnoreCase("stopped")){
+                    if(tmp.equalsIgnoreCase(CMD_STOP)){
                         startB.setText(R.string.button_start);
                         start = false;
-                    }else if (tmp.equalsIgnoreCase("clear-list")){
+                    }else if (tmp.equalsIgnoreCase(CMD_CLEARLIST)){
                         if(listUpdater!=null) listUpdater.cancel();
                         mAdapter.clear();
                         mAdapter.updateListView();
+                    }else if(tmp.equals(CMD_UPDATELIST)){
+                        updateListTurbo();
                     }
                 }else {
-                    updateUI(msg.getData().getString("data") + "\n");
+                    updateUI(msg.getData().getString(MSG_PRINT) + "\n");
                 }
                 super.handleMessage(msg);
             }
@@ -223,11 +244,32 @@ public class MainActivity extends ListActivity implements View.OnClickListener{
         //list view & update thread
         mAdapter = new ClientListAdapter(this);
         setListAdapter(mAdapter);
-        listUpdater = new UIUpdateThread(apmanager, mAdapter);
-        listUpdater.start();
 
         //info center
         infocenter = new InfoCenter(this.getApplicationContext(), apmanager, btadapter);
+    }
+
+    protected void onDestroy(){
+        listUpdater.cancel();
+        if(!isServer)
+            tryUnregisterBTDiscover();
+        unregisterReceiver(ctrlReceiver);
+        if(apmanager.isWifiApEnabled()) apmanager.setWifiApEnabled(null, false);
+
+        stopThreads();
+        super.onDestroy();
+    }
+
+    public void onStop(){
+        listUpdater.cancel();
+        super.onStop();
+    }
+
+    public void onStart(){
+        super.onStart();
+        listUpdater = new UIUpdateThread(apmanager, mAdapter);
+        listUpdater.start();
+
         infocenter.updateInfo(); //update for the first time
     }
 
@@ -240,7 +282,7 @@ public class MainActivity extends ListActivity implements View.OnClickListener{
 
             if(isServer) startBroadcast();
             else{
-                pause(10);
+                //pause(10);
                 startScan();
             }
 
@@ -356,7 +398,6 @@ public class MainActivity extends ListActivity implements View.OnClickListener{
         }else{
             if(hclient!=null) hclient.cancel();
             tryUnregisterBTDiscover();
-
         }
         //btadapter.disable();
         updateUI("Main: threads stopped");
@@ -371,21 +412,30 @@ public class MainActivity extends ListActivity implements View.OnClickListener{
     }
 
     private void updateUI(String msg){
-        Log.v("BTChannel", msg);
-        tv.append(msg + '\n');
+        Log.v(TAG, msg);
+        SimpleDateFormat sdfDate = new SimpleDateFormat("(yyyy-MM-dd HH:mm:ss)");//dd/MM/yyyy
+        Date now = new Date();
+        String strDate = sdfDate.format(now);
+        tv.append(strDate + msg + '\n');
+    }
+
+    private void updateListTurbo(){
+        Log.v(TAG, "updateListTurbo: update ap client list faster");
+        listUpdater.cancel();
+        listUpdater = new UIUpdateThread(apmanager, mAdapter, 500);
+        listUpdater.start();
+
+        Intent it = new Intent(ACTION_TURBO_OFF);
+        PendingIntent pit = PendingIntent.getBroadcast(this, 1, it, PendingIntent.FLAG_ONE_SHOT);
+
+        // cancel turbo mode after 20 sec.
+        AlarmManager am = (AlarmManager) getSystemService(Context.ALARM_SERVICE);
+        long now = SystemClock.elapsedRealtime();
+        am.setExact(AlarmManager.ELAPSED_REALTIME_WAKEUP, now + 20, pit);
     }
 
     /**************** Override methods **************/
-    protected void onDestroy(){
-        listUpdater.cancel();
-        if(!isServer)
-            tryUnregisterBTDiscover();
-        unregisterReceiver(ctrlReceiver);
-        if(apmanager.isWifiApEnabled()) apmanager.setWifiApEnabled(null, false);
 
-        stopThreads();
-        super.onDestroy();
-    }
 
     @Override
     public boolean onCreateOptionsMenu(Menu menu) {

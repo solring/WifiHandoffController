@@ -12,6 +12,7 @@ import android.net.wifi.WifiConfiguration;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Message;
+import android.util.Log;
 
 import com.whitebyte.wifihotspotutils.WifiApManager;
 
@@ -111,12 +112,21 @@ public class HandoffServer extends Thread {
         }
     }
 
-    public void printui(String str){
+    public synchronized void printui(String str){
         Message msg = new Message();
         Bundle data = new Bundle();
-        data.putString("data", str );
+        data.putString(MainActivity.MSG_PRINT, str );
         msg.setData(data);
         uihandler.sendMessage(msg);
+    }
+
+    public synchronized void updateList(){
+        Message msg = new Message();
+        Bundle data = new Bundle();
+        data.putString(MainActivity.MSG_COMMAND, MainActivity.CMD_UPDATELIST );
+        msg.setData(data);
+        uihandler.sendMessage(msg);
+
     }
 
 }

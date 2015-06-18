@@ -154,7 +154,7 @@ public class Negotiator extends Thread {
                                 if (buffer.equalsIgnoreCase("ACK_RESULT")) {
 
                                     /******** Start Proxy Service here ********/
-                                    if(result.equalsIgnoreCase("ACCEPT")) startProxyServices();
+                                    //if(result.equalsIgnoreCase("ACCEPT")) startProxyServices();
 
                                     running = false; //NEGOTIATION OVER
                                 }
@@ -173,6 +173,9 @@ public class Negotiator extends Thread {
 
                 br.close();
                 socket.close();
+
+                Log.d("BTChannel", "Negotiator: update ap client list faster");
+                hserver.updateList();
                 hserver.printui("Negotiator: end of negotiator, close socket.");
 
             } catch (IOException e) {
@@ -242,7 +245,7 @@ public class Negotiator extends Thread {
 
     public void cancel(){
         hserver.printui("Negotiator: canceled.");
-        proxy.cancel();
+        //proxy.cancel();
         running = false;
     }
 }

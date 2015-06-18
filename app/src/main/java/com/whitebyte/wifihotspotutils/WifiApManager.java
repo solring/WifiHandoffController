@@ -19,9 +19,11 @@ package com.whitebyte.wifihotspotutils;
 import java.io.BufferedReader;
 import java.io.FileReader;
 import java.io.IOException;
+import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.net.InetAddress;
 import java.util.ArrayList;
+import java.util.List;
 
 import android.content.Context;
 import android.net.wifi.WifiConfiguration;
@@ -140,7 +142,6 @@ public class WifiApManager {
 	 */
 	public void getClientList(final boolean onlyReachables, final int reachableTimeout, final FinishScanListener finishListener) {
 
-
 		Runnable runnable = new Runnable() {
 			public void run() {
 
@@ -190,5 +191,22 @@ public class WifiApManager {
 
 		Thread mythread = new Thread(runnable);
 		mythread.start();
+	}
+
+	public ArrayList<String> getClientListMTK(){
+		ArrayList<String> ans = new ArrayList<String>();
+		try {
+			Method method = mWifiManager.getClass().getMethod("getHotspotClients");
+			List clients = (List) method.invoke(mWifiManager);
+			for(Object c : clients){
+				Field addr = c.getClass().getField("deviceAddress");
+				ans.add((String)addr.get(c));
+			}
+			return ans;
+
+		} catch (Exception e) {
+			Log.e(this.getClass().toString(), "", e);
+			return null;
+		}
 	}
 }
