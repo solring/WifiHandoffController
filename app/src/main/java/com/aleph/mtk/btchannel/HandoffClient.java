@@ -60,7 +60,7 @@ public class HandoffClient extends Thread {
         private String target = "";
         private int port = 0;
         private String TAG = "CommandThread";
-        private final static int TIMEOUT_MILL = 10000; //10 secs
+        private final static int TIMEOUT_MILL = 15000; //15 secs
 
 
 
@@ -125,7 +125,7 @@ public class HandoffClient extends Thread {
             try {
                 InetAddress addr = InetAddress.getByName(ip);
                 DatagramSocket udpsocket = new DatagramSocket();
-                udpsocket.setSoTimeout(1000);  //retry every sec.
+                udpsocket.setSoTimeout(500);  //retry every 0.5 sec.
 
                 //String tmp = ssid + "/" + udpsocket.getPort();
                 byte[] msg = ssid.getBytes(); //get from hand-off server (proxy)

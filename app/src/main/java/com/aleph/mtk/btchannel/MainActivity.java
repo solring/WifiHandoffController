@@ -288,9 +288,8 @@ public class MainActivity extends ListActivity implements View.OnClickListener{
 
         }else{
 
-            startB.setText(R.string.button_start);
-            start=false;
-
+            //startB.setText(R.string.button_start);
+            //start=false;
             stopThreads();
         }
     }
@@ -302,11 +301,13 @@ public class MainActivity extends ListActivity implements View.OnClickListener{
             return;
         }
 
-        if(requestCode==REQ_BT_SERVER) {
+        //if(requestCode==REQ_BT_SERVER) {
+        if(isServer) {
             updateUI("onActivityResult: BT enabled.");
             startServer();
 
-        }else if(requestCode == REQ_BT_CLIENT){
+            //}else if(requestCode == REQ_BT_CLIENT){
+        }else{
             updateUI("onActivityResult: BT enabled.");
             startClient();
         }
@@ -400,6 +401,8 @@ public class MainActivity extends ListActivity implements View.OnClickListener{
             tryUnregisterBTDiscover();
         }
         //btadapter.disable();
+        startB.setText(R.string.button_start);
+        start=false;
         updateUI("Main: threads stopped");
     }
 
@@ -451,15 +454,22 @@ public class MainActivity extends ListActivity implements View.OnClickListener{
         // as you specify a parent activity in AndroidManifest.xml.
         int id = item.getItemId();
         if (id == R.id.action_server) {
-            isServer = true;
-            mode.setText(R.string.mode_server);
+            if(!isServer){
+                stopThreads();
+
+                isServer = true;
+                mode.setText(R.string.mode_server);
+            }
 
             //startBroadcast();
             return true;
         }else if(id== R.id.action_client){
-            isServer = false;
-            mode.setText(R.string.mode_client);
+            if(isServer) {
+                stopThreads();
 
+                isServer = false;
+                mode.setText(R.string.mode_client);
+            }
             //startScan();
             return true;
         }
