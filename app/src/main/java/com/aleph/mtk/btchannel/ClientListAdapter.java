@@ -31,9 +31,12 @@ public class ClientListAdapter extends BaseAdapter {
 
         devHash = new HashMap<String, String>();
         devHash.put("f8:f1:b6:d6:2d:aa", "XT1058");
-        devHash.put("00:18:60:8a:85:65", "acers56-1");
-        devHash.put("00:18:60:8a:be:0c", "acers56-2");
+        devHash.put("00:18:60:8a:85:65", "sherryproxy");
+        devHash.put("00:18:60:8a:be:0c", "shawnproxy");
+        devHash.put("00:08:22:5e:66:c7", "marvinproxy");
+        devHash.put("00:08:22:f8:54:45", "marvinproxy");
         devHash.put("00:08:22:c6:21:c2", "k2v1-177");
+        devHash.put("14:1a:a3:8c:1a:30", "Nexus6");
     }
 
     public synchronized void updateListView() {

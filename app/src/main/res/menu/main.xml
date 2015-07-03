@@ -9,4 +9,12 @@
         android:title="@string/action_client"
         android:orderInCategory="100"
         android:showAsAction="never" />
+    <item android:id="@+id/action_server2"
+        android:title="@string/action_server2"
+        android:orderInCategory="100"
+        android:showAsAction="never" />
+    <item android:id="@+id/action_client2"
+        android:title="@string/action_client2"
+        android:orderInCategory="100"
+        android:showAsAction="never" />
 </menu>

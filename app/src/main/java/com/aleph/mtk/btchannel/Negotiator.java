@@ -1,10 +1,11 @@
 package com.aleph.mtk.btchannel;
 
 import android.bluetooth.BluetoothSocket;
+import android.content.Intent;
 import android.net.wifi.WifiConfiguration;
 import android.util.Log;
 
-import com.aleph.mtk.proxyservice.ProxyService;
+//import com.aleph.mtk.proxyservice.ProxyService;
 
 import org.json.JSONArray;
 import org.json.JSONException;
@@ -35,7 +36,7 @@ public class Negotiator extends Thread {
     private PrintStream ps;
     private BufferedReader br;
 
-    public ProxyService proxy;
+    //public ProxyService proxy;
     //private ArrayList<String> restypes;
     private JSONArray restypes;
 
@@ -122,6 +123,7 @@ public class Negotiator extends Thread {
 
                                     //Check policy & get resource type
                                     result = checkPolicy(local, remote);
+                                    if(result.equals("ACCEPT")) hserver.notifyOICClients(HandoffClient.STOP_CLIENT);
 
                                     state = SState.SEND_RESULT;
                                 }catch(JSONException e){
@@ -137,7 +139,6 @@ public class Negotiator extends Thread {
                             break;
 
                         case SEND_RESULT:
-                            hserver.printui("in CHECKING: ");
                             ps.println(result);
                             ps.flush();
                             //running = false;
@@ -154,7 +155,10 @@ public class Negotiator extends Thread {
                                 if (buffer.equalsIgnoreCase("ACK_RESULT")) {
 
                                     /******** Start Proxy Service here ********/
-                                    //if(result.equalsIgnoreCase("ACCEPT")) startProxyServices();
+                                    if(result.equalsIgnoreCase("ACCEPT")) {
+                                        hserver.printui("ACCPET, try to start Proxy...");
+                                        hserver.startProxyServices(restypes);
+                                    }
 
                                     running = false; //NEGOTIATION OVER
                                 }
@@ -174,35 +178,25 @@ public class Negotiator extends Thread {
                 br.close();
                 socket.close();
 
-                Log.d("BTChannel", "Negotiator: update ap client list faster");
-                hserver.updateList();
+                //Log.d("BTChannel", "Negotiator: update ap client list faster");
+                //hserver.updateList();
                 hserver.printui("Negotiator: end of negotiator, close socket.");
 
             } catch (IOException e) {
                 hserver.printui("Negotiator: readline error");
                 e.printStackTrace();
-            }
-
-        }
-    }
-
-    private void startProxyServices(){
-        // make a proxy service thread for every resource types
-        if(restypes!=null && restypes.length()>0) {
-            for(int i=0; i<restypes.length(); i++) {
-                String res = null;
+            }finally {
                 try {
-                    res = restypes.getString(i);
-                } catch (JSONException e) {
+                    socket.close();
+                } catch (IOException e) {
                     e.printStackTrace();
                 }
-                hserver.printui("Accepted, start the proxy service with resource: " + res + "......");
-                //new and start proxy thread...
-                proxy = new ProxyService(res, "0.0.0.0", 0);
-                proxy.start();
             }
+
         }
     }
+
+
 
     private String checkPolicy(JSONObject local, JSONObject remote){
         String res = "REJECT";

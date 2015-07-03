@@ -2,10 +2,14 @@
 <resources>
 
     <string name="app_name">BTChannel</string>
-    <string name="action_server">Server</string>
-    <string name="action_client">Client</string>
-    <string name="mode_server">Proxy Server</string>
-    <string name="mode_client">Proxy Client</string>
+    <string name="action_server">Server(AP)</string>
+    <string name="action_client">Client(AP)</string>
+    <string name="action_server2">Server</string>
+    <string name="action_client2">Client</string>
+    <string name="mode_server">Proxy Server(AP)</string>
+    <string name="mode_client">Proxy Client(AP)</string>
+    <string name="mode_server2">Proxy Server</string>
+    <string name="mode_client2">Proxy Client</string>
     <string name="button_stop">STOP</string>
     <string name="button_start">START</string>
 

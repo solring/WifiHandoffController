@@ -65,6 +65,7 @@ public class InfoCenter extends Thread{
         mainContext = context;
         //restypes = new ArrayList<String>();
         restypes = new JSONArray();
+        restypes.put("core.light");
 
         apm = _apm;
         btadapter = _btm;
@@ -116,6 +117,7 @@ public class InfoCenter extends Thread{
     public void updateInfo(){
 
         //Update in another thread
+        /*
         Runnable task = new Runnable() {
             @Override
             public void run() {
@@ -135,22 +137,7 @@ public class InfoCenter extends Thread{
                 }catch(NullPointerException e){
                     Log.v(this.getClass().getName(), "fail to update battery info.");
                 }
-        /*
-                rcv = new BroadcastReceiver() {
-                    @Override
-                    public void onReceive(Context context, Intent intent) {
-                        final String action = intent.getAction();
-                        //Battery level change
-                        if(action.equals(Intent.ACTION_BATTERY_CHANGED)){
-                            batLevel = intent.getIntExtra(BatteryManager.EXTRA_LEVEL, -1);
-                        }
-                        //Wifi
-                        else if(action.equals("")){
 
-                        }
-                    }
-                };
-        */
                 // Get ap state;
                 if(apm!=null && apm.getWifiApState() == WIFI_AP_STATE.WIFI_AP_STATE_ENABLED) {
                     scanning = true;
@@ -188,6 +175,7 @@ public class InfoCenter extends Thread{
 
         Thread t = new Thread(task);
         t.start();
+        */
     }
 
 }

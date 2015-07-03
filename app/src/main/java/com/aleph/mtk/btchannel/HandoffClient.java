@@ -1,10 +1,14 @@
 package com.aleph.mtk.btchannel;
 
+import android.app.AlarmManager;
+import android.app.PendingIntent;
 import android.bluetooth.BluetoothAdapter;
 import android.bluetooth.BluetoothDevice;
 import android.bluetooth.BluetoothSocket;
+import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
+import android.content.IntentFilter;
 import android.net.ConnectivityManager;
 import android.net.NetworkInfo;
 import android.net.wifi.SupplicantState;
@@ -14,6 +18,7 @@ import android.net.wifi.WifiManager;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Message;
+import android.os.SystemClock;
 import android.util.Log;
 
 import com.whitebyte.wifihotspotutils.ClientScanResult;
@@ -61,7 +66,8 @@ public class HandoffClient extends Thread {
         private int port = 0;
         private String TAG = "CommandThread";
         private final static int TIMEOUT_MILL = 15000; //15 secs
-
+        private final static int READ_TIMEOUT_MILI = 1000; // 1 sec
+        private final static int MAX_RETRY = 10;
 
 
         public CommandThread(String ip, int _port){
@@ -70,8 +76,8 @@ public class HandoffClient extends Thread {
         }
 
         public void run(){
-            sendToServerUDP(target);
-            //sendToServerTCP
+            //sendToServerUDP(target);
+            sendToServerTCP();
         }
 
         public void sendToServerTCP(){
@@ -79,39 +85,71 @@ public class HandoffClient extends Thread {
             PrintStream printf;
             boolean success = false;
             Log.d(TAG, "command channel of " +  target + "start");
+            Socket socket = null;
 
-            try {
-                Socket socket = new Socket(target, port);
-                Log.d(TAG, "connect to target " +  target);
-
-                reader = new BufferedReader(new InputStreamReader(socket.getInputStream()));
-                printf = new PrintStream(socket.getOutputStream());
-
-                while(!success) {
-
-                    printf.println(ssid);
-                    printf.flush();
-                    Log.d(TAG, "send command to " + target + ":" + remoteport);
-
-                    String res = reader.readLine(); //blocking
-                    Log.d(TAG, "received from " + target + ":" + remoteport);
-                    if (res.equalsIgnoreCase("ACK")) {
-                        Log.d(TAG, "received ACK from " + target + ":" + remoteport);
-                        success = true;
-                    }
-
+            /********** Try to connect AP clients TCP socket **********/
+            int count = 0;
+            while(count < MAX_RETRY) {
+                try {
+                    socket = new Socket(target, port);
+                    Log.d(TAG, "connect to target " +  target);
+                    socket.setSoTimeout(READ_TIMEOUT_MILI);
+                    break;
+                } catch (UnknownHostException e) {
+                    Log.e(TAG, "Init TCP socket fail: cannot find host" + target, e);
+                } catch (SocketException e2) {
+                    count++;
+                    Log.e(TAG, "Init TCP socket SocketException ", e2);
+                } catch (IOException e3){
+                    Log.e(TAG, "Init TCP socket IOException ", e3);
                 }
-                printf.close();
-                reader.close();
-                socket.close();
 
-                //Log.d(TAG, "send to " + target + ":" + remoteport);
-            } catch (UnknownHostException e) {
-                Log.e(TAG, "TCP socket fail: cannot find host" + target, e);
-            } catch (SocketException e2){
-                Log.e(TAG, "Init TCP socket fail: " + target, e2);
-            } catch (IOException e3){
-                Log.e("handOffWifi", "IO error fail", e3);
+                Log.e(TAG, "Init TCP socket fail - retry # " + count);
+                count++;
+                try {
+                    Thread.sleep(1000);
+                } catch (InterruptedException e) {
+                    e.printStackTrace();
+                }
+            }
+
+            if(count > MAX_RETRY){
+                printui("ERROR: Fail to Init TCP socket to target "+ target);
+                return;
+            }
+
+            count = 0;
+            if(socket!=null) {
+                try {
+                    reader = new BufferedReader(new InputStreamReader(socket.getInputStream()));
+                    printf = new PrintStream(socket.getOutputStream());
+
+                    while (!success && count < MAX_RETRY) {
+
+                        printf.println(ssid);
+                        printf.flush();
+                        Log.d(TAG, "send command to " + target + ":" + remoteport);
+
+                        try {
+                            String res = reader.readLine(); //blocking
+                            Log.d(TAG, "received from " + target + ":" + remoteport);
+                            if (res!=null && res.equalsIgnoreCase("ACK")) {
+                                printui("received ACK from " + target + ":" + remoteport);
+                                success = true;
+                            }
+                        }catch (SocketTimeoutException e4){
+                            count++;
+                            printui("rcv ACK timeout from " + target + " #" + count);
+                        }
+                    }
+                    printf.close();
+                    reader.close();
+                    socket.close();
+                    //Log.d(TAG, "send to " + target + ":" + remoteport);
+
+                } catch (IOException e3){
+                    Log.e(TAG, "IO error fail", e3);
+                }
             }
         }
 
@@ -172,7 +210,8 @@ public class HandoffClient extends Thread {
     public final static String INIT_OIC_STACK = "org.iotivity.base.examples.INIT_OIC_STACK";
     public final static String INIT_OIC_STACK_PROXY = "org.iotivity.base.examples.INIT_OIC_STACK_PROXY";
     public final static String STOP_CLIENT = "org.iotivity.base.examples.STOP_CLIENT";
-
+    public final static String SOFTINIT_OIC_STACK_PROXY = "org.iotivity.base.examples.SOFTINIT_OIC_STACK_PROXY";
+    public final static int BT_RETRY_TIMEOUT = 3;
     public final static String TAG = "HandoffClient";
 
     Handler uihandler;
@@ -180,8 +219,11 @@ public class HandoffClient extends Thread {
     //for negotiation
     CState state;
     boolean running;
+    private boolean APmode;
+
     private BluetoothDevice btdevice;
     private BluetoothSocket socket;
+    private UUID uuid;
     //private BluetoothAdapter btadapter;
     private WifiApManager apmanager;
     private WifiManager wmanager;
@@ -204,26 +246,71 @@ public class HandoffClient extends Thread {
     String buffer;
 
 
-    public HandoffClient(Context context, Handler h, BluetoothDevice device, WifiApManager _apmanager, WifiManager _wmanager, InfoCenter ic, UUID uuid){
+    public HandoffClient(Context context, Handler h, BluetoothDevice device, WifiApManager _apmanager, WifiManager _wmanager, InfoCenter ic, UUID _uuid, boolean apmode){
 
         mContext = context;
-        running = false;
         btdevice = device;
         uihandler = h;
         //btadapter = adapter;
         apmanager = _apmanager;
         wmanager = _wmanager;
         infocenter = ic;
-        BluetoothSocket tmp = null;
+        uuid = _uuid;
+        APmode = apmode;
+
+        running = false;
         state = CState.INIT;
 
-        try{
-            tmp = btdevice.createRfcommSocketToServiceRecord(uuid);
-        }catch(IOException e){
-            printui("Handoff client ERROR: fail to connect the device...");
-            System.out.println(e.toString());
+        ps = null;
+        br= null;
+        is = null;
+        os = null;
+
+    }
+
+    private void tryNewRFCOMMSocket(){
+
+        int count = 0;
+        BluetoothSocket tmp = null;
+        while(count < MainActivity.MAX_RETRY) {
+            try {
+                tmp = btdevice.createRfcommSocketToServiceRecord(uuid);
+                break;
+            } catch (IOException e) {
+                count++;
+                printui("ERROR: fail to connect RFCOMM... retry " + count);
+                Util.sleep(BT_RETRY_TIMEOUT);
+            }
         }
         socket = tmp;
+    }
+
+    private void tryConnectBTServer(){
+        int count = 0;
+        while(running && count < 10000) {
+            /********** Try to connect the BT servers socket **********/
+            try {
+                // Connect the device through the socket. This will block
+                // until it succeeds or throws an exception
+                socket.connect();
+
+                os = socket.getOutputStream();
+                is = socket.getInputStream();
+                ps = new PrintStream(os);
+                br = new BufferedReader(new InputStreamReader(is));
+                return;
+            } catch (IOException connectException) {
+                // Unable to connect; close the socket and get out
+                count++;
+                printui("ERROR: fail to connect the BT socket, retry..." + count);
+                Util.sleep(BT_RETRY_TIMEOUT);
+            }
+        }
+        //exceed retry times
+        try {
+            socket.close();
+        } catch (IOException closeException) {}
+        printui("ERROR: fail to connect the BT socket " + count + " times. abort.");
     }
 
     public void run() {
@@ -233,27 +320,16 @@ public class HandoffClient extends Thread {
         last = now = System.currentTimeMillis();
         running = true;
 
-        try {
-            // Connect the device through the socket. This will block
-            // until it succeeds or throws an exception
-            socket.connect();
-
-            os = socket.getOutputStream();
-            is = socket.getInputStream();
-            ps = new PrintStream(os);
-            br = new BufferedReader(new InputStreamReader(is));
-
-        } catch (IOException connectException) {
-            // Unable to connect; close the socket and get out
-            printui("ERROR: fail to connect the socket");
-            try {
-                socket.close();
-            } catch (IOException closeException) { }
+        tryNewRFCOMMSocket();
+        if(socket==null){
+            printui("ERROR: create RFCOMM socket failed");
             return;
         }
 
+        tryConnectBTServer();
+
         // Do work to manage the connection (in a separate thread)
-        printui("connect to server.");
+        printui("connected to server.");
         try {
 
             /***************************** Client Main *******************************************/
@@ -338,11 +414,16 @@ public class HandoffClient extends Thread {
                     case HANDOFF:
                         //Start actual hand-off process
                         //This will block until Wi-Fi is associated
-                        handOffWifi();
-                        closeAPlist();
-                        //re-init OIC clients
-                        //notifyOICClients(INIT_OIC_STACK_PROXY);
-                        notifyOICClients(INIT_OIC_STACK);
+                        if(APmode) {
+                            handOffWifi();
+                            closeAPlist();
+                        }else{
+                            //waitOIC();       /* Work around for Iotivity */
+                            //notifyOICClients(SOFTINIT_OIC_STACK_PROXY);
+                            notifyOICClientsDelay(SOFTINIT_OIC_STACK_PROXY, 5);
+                        }
+                        // cannot notify OIC reinit stack after hand-off here?
+
 
                         running = false;
                         break;
@@ -353,12 +434,15 @@ public class HandoffClient extends Thread {
             }
             /******************************** End Main *******************************************/
             resetButton();
-            printui("close socket.");
-            ps.close();
-            socket.close();
+
+            if(ps!=null) ps.close();
+            if(socket!=null) socket.close();
         } catch (IOException e) {
             e.printStackTrace();
+        } finally {
+            if(ps!=null) ps.close();
         }
+        printui("Handoff Client: end of client");
         return;
     }
 
@@ -369,12 +453,15 @@ public class HandoffClient extends Thread {
      * Currently send to all devices connected to AP
      * **************************************************************/
     private void handOffWifi(){
+
         targets = new ArrayList<String>();
         ready = false;
         abortFlag = false;
 
         //TEMP: list all connected hot-spot clients
         //targets here should be provided by the proxy
+
+        final ArrayList<String> maclist = apmanager.getClientListMTK();
 
         apmanager.getClientList(false, new FinishScanListener() {
             @Override
@@ -386,9 +473,14 @@ public class HandoffClient extends Thread {
                     mac = c.getHWAddr();
                     name = c.getDevice();
 
-                    printui("--- in getClientList ---");
-                    printui("  ip=" + ip + ", mac=" + mac + ", device=" + name);
-                    targets.add(ip);
+                    //check if the mac is really connected
+                    for(String m : maclist){
+                        if(m.equalsIgnoreCase(mac)){
+                            printui("  ip=" + ip + ", mac=" + mac + ", device=" + name);
+                            targets.add(ip);
+                            break;
+                        }
+                    }
                 }
                 ready = true;
             }
@@ -396,7 +488,7 @@ public class HandoffClient extends Thread {
         while(!ready){}//spin lock
 
 
-        Log.d("HandoffClient", "starting command threads...");
+        Log.d(TAG, "starting command threads...");
         //send hand-off command to handed clients
         ArrayList<CommandThread> ths = new ArrayList();
         for(String ip : targets) {
@@ -413,7 +505,7 @@ public class HandoffClient extends Thread {
             }
         }
 
-        if(abortFlag) {
+        if (abortFlag) {
             printui("Not all AP clients handed over successfully");
         }
         printui("All AP clients notified.");
@@ -426,19 +518,57 @@ public class HandoffClient extends Thread {
 
     /* **************************************************************
      * Helper function of hand-off progress.
-     * Close Wi-fi AP and connect to the hand-off server (proxy)
+     * Close Wi-fi AP, enable Wi-fi, and connect to the hand-off server (proxy)
      * **************************************************************/
     public void connectProxyWifi(){
-        WifiInfo info = wmanager.getConnectionInfo();
-
-        int origin = info.getNetworkId();
-        int target = origin;
+        //WifiInfo info = wmanager.getConnectionInfo();
+        //int origin = info.getNetworkId();
+        //int target = origin;
 
         //disable wifi ap
         apmanager.setWifiApEnabled(null, false);
 
-        if(!wmanager.isWifiEnabled()) wmanager.setWifiEnabled(true);
-        while(wmanager.getWifiState()!=WifiManager.WIFI_STATE_ENABLED){} //spin lock
+        if(!wmanager.isWifiEnabled()) {
+            wmanager.setWifiEnabled(true);
+
+            BroadcastReceiver rcv = new BroadcastReceiver() {
+                @Override
+                public void onReceive(Context context, Intent intent) {
+
+                    int state = intent.getIntExtra(WifiManager.EXTRA_WIFI_STATE,
+                            WifiManager.WIFI_STATE_UNKNOWN);
+                    switch (state) {
+                        case WifiManager.WIFI_STATE_ENABLED:
+                            Log.d(TAG, "onReceive: Wifi enabled");
+                            connectAP(1);
+                            mContext.unregisterReceiver(this);
+                            break;
+                        case WifiManager.WIFI_STATE_DISABLED:;
+                        default:
+                            //do nothing
+                    }
+                }
+            };
+            final IntentFilter filters = new IntentFilter();
+            filters.addAction("android.net.wifi.WIFI_STATE_CHANGED");
+            filters.addAction("android.net.wifi.STATE_CHANGE");
+            mContext.registerReceiver(rcv, filters);
+
+        }else{
+            connectAP(1); //connect to the 1st prio AP in the AP list
+        }
+        //while(wmanager.getWifiState()!=WifiManager.WIFI_STATE_ENABLED){} //spin lock
+
+
+    }
+
+    /* **************************************************************
+     * Helper function of hand-off progress.
+     * Connect to the specific AP after enabling Wi-Fi
+     * **************************************************************/
+    public void connectAP(int origin){
+
+        int target = origin;
 
         //Get the wifi configuration of hand-off server
         WifiConfiguration config = isExsits("\"" + ssid + "\"");
@@ -484,6 +614,16 @@ public class HandoffClient extends Thread {
             }
             printui("New wifi ap connected.");
 
+            //re-init OIC clients
+            //Enable proxy service only in non-AP mode
+
+            //waitOIC();
+            //notifyOICClients(INIT_OIC_STACK);
+            notifyOICClientsDelay(INIT_OIC_STACK, 10);
+
+            //notifyOICClients(INIT_OIC_STACK_PROXY);
+
+
         }else{
             printui("ERROR: enable network fail");
         }
@@ -507,11 +647,21 @@ public class HandoffClient extends Thread {
     }
 
     private void notifyOICClients(String action){
-        printui("Notify all Iotivity clients ..." + action);
+        printui("Handoff client: Notify all Iotivity clients ..." + action);
         Intent notify = new Intent(action);
         mContext.sendBroadcast(notify);
     }
 
+    private void notifyOICClientsDelay(String action, int delaySec){
+        printui("notify OIC Clients, action: "+action);
+        long trigger = SystemClock.elapsedRealtime() + delaySec * 1000;
+
+        Intent notify = new Intent(action);
+        PendingIntent pi = PendingIntent.getBroadcast(mContext, 1, notify, PendingIntent.FLAG_ONE_SHOT);
+
+        AlarmManager am  = (AlarmManager)mContext.getSystemService(Context.ALARM_SERVICE);
+        am.setExact(AlarmManager.RTC_WAKEUP, trigger, pi);
+    }
 
     public void cancel(){
             printui("thread canceled.");
@@ -521,10 +671,10 @@ public class HandoffClient extends Thread {
 
     /************************** UI functions ***************************/
     public void printui(String str){
-        System.out.println("Handoff client:" + str);
+        //System.out.println("Handoff client:" + str);
         Message msg = new Message();
         Bundle data = new Bundle();
-        data.putString("data", "Handoff client:" + str );
+        data.putString("data",str );
         msg.setData(data);
         uihandler.sendMessage(msg);
     }

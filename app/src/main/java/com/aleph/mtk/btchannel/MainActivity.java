@@ -3,10 +3,10 @@ package com.aleph.mtk.btchannel;
 import android.app.AlarmManager;
 import android.app.ListActivity;
 import android.app.PendingIntent;
+import android.net.ConnectivityManager;
+import android.net.NetworkInfo;
 import android.net.wifi.WifiConfiguration;
 import android.net.wifi.WifiInfo;
-import android.net.wifi.p2p.WifiP2pManager;
-import android.net.wifi.p2p.WifiP2pManager.Channel;
 import android.net.wifi.WifiManager;
 import android.content.BroadcastReceiver;
 import android.content.Intent;
@@ -15,7 +15,6 @@ import android.bluetooth.BluetoothAdapter;
 import android.bluetooth.BluetoothDevice;
 import android.content.Context;
 import android.content.IntentFilter;
-import android.os.BatteryManager;
 import android.os.Bundle;
 import android.os.Message;
 import android.os.SystemClock;
@@ -25,16 +24,13 @@ import android.view.MenuItem;
 import android.view.View;
 import android.os.Handler;
 import android.widget.Button;
-import android.widget.ListAdapter;
+import android.widget.ScrollView;
 import android.widget.TextView;
-import com.aleph.mtk.proxyservice.ProxyService;
-import com.whitebyte.wifihotspotutils.ClientScanResult;
-import com.whitebyte.wifihotspotutils.FinishScanListener;
+//import com.aleph.mtk.proxyservice.ProxyService;
 import com.whitebyte.wifihotspotutils.WifiApManager;
 
 import java.io.DataOutputStream;
 import java.io.IOException;
-import java.lang.reflect.Method;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Date;
@@ -46,6 +42,8 @@ public class MainActivity extends ListActivity implements View.OnClickListener{
 
     private boolean start;
     private boolean isServer=true;
+    private boolean APmode;
+
     private ArrayList<String> devices;
     private BroadcastReceiver mReceiver;
     private BroadcastReceiver ctrlReceiver;
@@ -66,6 +64,7 @@ public class MainActivity extends ListActivity implements View.OnClickListener{
     public String ssid;
     WifiConfiguration apConfig;
 
+
     //Static
     private static UUID PROXY_UUID;
 
@@ -77,6 +76,7 @@ public class MainActivity extends ListActivity implements View.OnClickListener{
     private static final int DISCOVERABLE_DURATION = 180;
     public static int TIMEOUT = 5000;
     public static int MAX_RETRY = 5;
+    public static int UPDATE_PERIOD = 1; //1 SEC
     public final static String ACTION_START = "com.mtk.aleph.btchannel.START";
     public final static String ACTION_STOP = "com.mtk.aleph.btchannel.STOP";
     public final static String ACTION_TURBO_OFF = "com.mtk.aleph.btchannel.TURBO_OFF";
@@ -86,8 +86,7 @@ public class MainActivity extends ListActivity implements View.OnClickListener{
     public static final String CMD_CLEARLIST = "clear-list";
     public static final String CMD_UPDATELIST = "update-list";
     public static final String CMD_STOP = "stopped";
-    
-    
+
     //GUI
     public Handler mHandler;
     public Button startB;
@@ -95,14 +94,77 @@ public class MainActivity extends ListActivity implements View.OnClickListener{
     public TextView mode;
     public ClientListAdapter mAdapter;
     public UIUpdateThread listUpdater;
+    public ScrollView scroll;
+
+    class APFixThread extends Thread{
+        public void run() {
+
+            while(!apmanager.isWifiApEnabled()){} //simple pin lock
+            try {
+                Process suProcess = Runtime.getRuntime().exec("su");
+                DataOutputStream os = new DataOutputStream(suProcess.getOutputStream());
+                os.writeBytes("route add -net 224.0.0.0 netmask 224.0.0.0 dev ap0" + "\n");
+                os.flush();
+
+                os.writeBytes("exit\n");
+                os.flush();
+
+                int res = suProcess.waitFor();
+                Log.v("ROOT", "change route finished");
+
+            } catch (IOException e) {
+                Log.e("ROOT", "cannot get root access, try to change directly");
+                try {
+                    Process suProcess = Runtime.getRuntime().exec("sh");
+                    DataOutputStream os = new DataOutputStream(suProcess.getOutputStream());
+                    os.writeBytes("route add -net 224.0.0.0 netmask 224.0.0.0 dev ap0" + "\n");
+                    os.flush();
+
+                    os.writeBytes("exit\n");
+                    os.flush();
+
+                    int res = suProcess.waitFor();
+                    Log.v("ROOT", "change route finished");
+
+                }catch (IOException e1) {
+
+                }catch (InterruptedException e2) {
+                    e2.printStackTrace();
+                }
+                e.printStackTrace();
+            } catch (InterruptedException e) {
+                e.printStackTrace();
+            }
+            runOnUiThread( new Thread(new Runnable() {
+                    @Override
+                    public void run() {
+                        notifyOICClients(HandoffClient.INIT_OIC_STACK);
+                        if(startB!=null)startB.setEnabled(true);
+                    }
+                })
+            );
+
+        }
+    }
+
+    private static MainActivity instance = null;
+
+    public static MainActivity getInstance() {
+        return instance;
+    }
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
+        //for singleton
+        instance = this;
+
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
 
         start = false;
         isServer = true; //default is server
+        APmode = true;
+
         devices = new ArrayList();
         PROXY_UUID = new UUID(2506, 3305);
         hserver = null;
@@ -115,49 +177,6 @@ public class MainActivity extends ListActivity implements View.OnClickListener{
         if(!apmanager.isWifiApEnabled())
             apmanager.setWifiApEnabled(null, true);
         apConfig = apmanager.getWifiApConfiguration();
-
-        // Fix ap route
-        new Thread(new Runnable() {
-            @Override
-            public void run() {
-                while(!apmanager.isWifiApEnabled()){} //simple pin lock
-                try {
-                    Process suProcess = Runtime.getRuntime().exec("su");
-                    DataOutputStream os = new DataOutputStream(suProcess.getOutputStream());
-                    os.writeBytes("route add -net 224.0.0.0 netmask 224.0.0.0 dev ap0" + "\n");
-                    os.flush();
-
-                    os.writeBytes("exit\n");
-                    os.flush();
-
-                    int res = suProcess.waitFor();
-                    Log.v("ROOT", "change route finished");
-
-                } catch (IOException e) {
-                    Log.e("ROOT", "cannot get root access, try to change directly");
-                    try {
-                        Process suProcess = Runtime.getRuntime().exec("sh");
-                        DataOutputStream os = new DataOutputStream(suProcess.getOutputStream());
-                        os.writeBytes("route add -net 224.0.0.0 netmask 224.0.0.0 dev ap0" + "\n");
-                        os.flush();
-
-                        os.writeBytes("exit\n");
-                        os.flush();
-
-                        int res = suProcess.waitFor();
-                        Log.v("ROOT", "change route finished");
-
-                    }catch (IOException e1) {
-
-                    }catch (InterruptedException e2) {
-                        e2.printStackTrace();
-                    }
-                    e.printStackTrace();
-                } catch (InterruptedException e) {
-                    e.printStackTrace();
-                }
-            }
-        }).start();
 
         //get bt adapter
         //btmanager = (BluetoothManager) getSystemService(Context.BLUETOOTH_SERVICE);
@@ -187,7 +206,7 @@ public class MainActivity extends ListActivity implements View.OnClickListener{
                 if (action.equals(ACTION_START)){
                     Log.v("BTChannel", "Receive msg action_start");
                     if(!start){
-                        pause(10);
+                        Util.sleep(10);
                         startB.setText(R.string.button_stop);
                         start=true;
 
@@ -216,7 +235,9 @@ public class MainActivity extends ListActivity implements View.OnClickListener{
         mode = (TextView) findViewById(R.id.text1);
         startB = (Button) findViewById(R.id.button1);
         startB.setOnClickListener(this);
+        startB.setEnabled(false);
         tv = (TextView)findViewById(R.id.text2);
+        scroll = (ScrollView) findViewById(R.id.scrollView);
 
         mHandler = new Handler(){
             public void handleMessage(Message msg){
@@ -228,7 +249,7 @@ public class MainActivity extends ListActivity implements View.OnClickListener{
                         startB.setText(R.string.button_start);
                         start = false;
                     }else if (tmp.equalsIgnoreCase(CMD_CLEARLIST)){
-                        if(listUpdater!=null) listUpdater.cancel();
+                        //if(listUpdater!=null) listUpdater.cancel();
                         mAdapter.clear();
                         mAdapter.updateListView();
                     }else if(tmp.equals(CMD_UPDATELIST)){
@@ -247,6 +268,9 @@ public class MainActivity extends ListActivity implements View.OnClickListener{
 
         //info center
         infocenter = new InfoCenter(this.getApplicationContext(), apmanager, btadapter);
+
+        // Fix ap route
+        new APFixThread().start();
     }
 
     protected void onDestroy(){
@@ -261,13 +285,13 @@ public class MainActivity extends ListActivity implements View.OnClickListener{
     }
 
     public void onStop(){
-        listUpdater.cancel();
+        if(listUpdater!=null)listUpdater.cancel();
         super.onStop();
     }
 
     public void onStart(){
         super.onStart();
-        listUpdater = new UIUpdateThread(apmanager, mAdapter);
+        listUpdater = new UIUpdateThread(apmanager, mAdapter, UPDATE_PERIOD);
         listUpdater.start();
 
         infocenter.updateInfo(); //update for the first time
@@ -330,13 +354,11 @@ public class MainActivity extends ListActivity implements View.OnClickListener{
         //int tmp = info.getIpAddress();
         //ipaddr = String.format("%d.%d.%d.%d", (tmp & 0xff), (tmp >> 8 & 0xff), (tmp >> 16 & 0xff), (tmp >> 24 & 0xff));
 
-        hserver = new HandoffServer(this.mHandler, btadapter, apConfig, infocenter, PROXY_UUID);
+        hserver = new HandoffServer(this, this.mHandler, btadapter, apConfig, infocenter, PROXY_UUID, APmode);
         updateUI("onActivityResult: New handoff server thread");
 
         hserver.start();
     }
-
-
 
 
 
@@ -361,7 +383,9 @@ public class MainActivity extends ListActivity implements View.OnClickListener{
                 updateUI("startScan: " + device.getName() + " | " + device.getAddress());
 
                 //Try to connect proxy service
-                connectProxy(device);
+                boolean res = connectProxy(device);
+                if(res) break;
+
             }
         }else{//If no bonded device, start scan...
 
@@ -374,18 +398,20 @@ public class MainActivity extends ListActivity implements View.OnClickListener{
         }
     }
 
-    private void connectProxy(BluetoothDevice device){
+    private boolean connectProxy(BluetoothDevice device){
         //fixed server now
         if(device.getName().contains(PROXY_NAME)){
 
-            hclient = new HandoffClient(this, mHandler, device, apmanager, wifimanager, infocenter, PROXY_UUID);
-            System.out.println("Main: New handoff client thread");
+            updateUI("try to connect proxy " + device.getName());
+            hclient = new HandoffClient(this, mHandler, device, apmanager, wifimanager, infocenter, PROXY_UUID, APmode);
 
             hclient.start();
 
             // Cancel discovery because it will slow down the connection
             btadapter.cancelDiscovery();
+            return true;
         }
+        return false;
 
     }
 
@@ -393,17 +419,34 @@ public class MainActivity extends ListActivity implements View.OnClickListener{
     /********************** Helper Functions ***********************/
 
     private void stopThreads(){
-        if(isServer) {
+        //if(isServer) {
             if (hserver != null) hserver.cancel();
 
-        }else{
+        //}else{
             if(hclient!=null) hclient.cancel();
             tryUnregisterBTDiscover();
-        }
+        //}
         //btadapter.disable();
         startB.setText(R.string.button_start);
         start=false;
         updateUI("Main: threads stopped");
+    }
+
+    public void notifyOICClients(String action){
+        Log.d(TAG, "Main: Notify all Iotivity clients ..." + action);
+        Intent notify = new Intent(action);
+        sendBroadcast(notify);
+    }
+
+    private void notifyOICClientsDelay(String action, int delaySec){
+        Log.d(TAG, "notify OIC Clients, action: " + action);
+        long trigger = SystemClock.elapsedRealtime() + delaySec * 1000;
+
+        Intent notify = new Intent(action);
+        PendingIntent pi = PendingIntent.getBroadcast(this, 1, notify, PendingIntent.FLAG_ONE_SHOT);
+
+        AlarmManager am  = (AlarmManager)getSystemService(Context.ALARM_SERVICE);
+        am.setExact(AlarmManager.RTC_WAKEUP, trigger, pi);
     }
 
     private void tryUnregisterBTDiscover(){
@@ -420,12 +463,13 @@ public class MainActivity extends ListActivity implements View.OnClickListener{
         Date now = new Date();
         String strDate = sdfDate.format(now);
         tv.append(strDate + msg + '\n');
+        scroll.fullScroll(View.FOCUS_DOWN);
     }
 
     private void updateListTurbo(){
         Log.v(TAG, "updateListTurbo: update ap client list faster");
         listUpdater.cancel();
-        listUpdater = new UIUpdateThread(apmanager, mAdapter, 500);
+        listUpdater = new UIUpdateThread(apmanager, mAdapter, 1);
         listUpdater.start();
 
         Intent it = new Intent(ACTION_TURBO_OFF);
@@ -453,37 +497,107 @@ public class MainActivity extends ListActivity implements View.OnClickListener{
         // automatically handle clicks on the Home/Up button, so long
         // as you specify a parent activity in AndroidManifest.xml.
         int id = item.getItemId();
-        if (id == R.id.action_server) {
-            if(!isServer){
-                stopThreads();
+        stopThreads();
 
-                isServer = true;
-                mode.setText(R.string.mode_server);
+        /****************** AP(Hotspot) Mode *********************/
+        if(id == R.id.action_client || id == R.id.action_server){
+
+            //if(!APmode) {
+                APmode = true;
+
+                if (apmanager != null && !apmanager.isWifiApEnabled()) {
+
+                    startB.setEnabled(false);
+                    notifyOICClients(HandoffClient.STOP_CLIENT);
+
+                    apmanager.setWifiApEnabled(null, true);
+                    new APFixThread().start();
+
+                    //listUpdater = new UIUpdateThread(apmanager, mAdapter, UPDATE_PERIOD);
+                    //listUpdater.start();
+                }
+            //}
+
+            if (id == R.id.action_server) {
+                //if(!isServer){
+                    isServer = true;
+                    mode.setText(R.string.mode_server);
+                //}
+                //startBroadcast();
+                return true;
+            }else if(id== R.id.action_client) {
+                //if (isServer) {
+                    isServer = false;
+                    mode.setText(R.string.mode_client);
+                //}
+                //startScan();
+                return true;
             }
 
-            //startBroadcast();
-            return true;
-        }else if(id== R.id.action_client){
-            if(isServer) {
-                stopThreads();
+        }else{/****************** External AP Mode *********************/
+            if(APmode) {
+                APmode = false;
 
-                isServer = false;
-                mode.setText(R.string.mode_client);
+                if (apmanager != null && apmanager.isWifiApEnabled()) {
+
+                    notifyOICClients(HandoffClient.STOP_CLIENT);
+                    startB.setEnabled(false);
+
+                    apmanager.setWifiApEnabled(null, false);
+                    wifimanager.setWifiEnabled(true);
+
+                    BroadcastReceiver connectDetector = new BroadcastReceiver() {
+                        @Override
+                        public void onReceive(Context context, Intent intent) {
+                            String action = intent.getAction();
+                            if(WifiManager.NETWORK_STATE_CHANGED_ACTION.equals(action)){
+                                WifiManager manager = (WifiManager)context.getSystemService(Context.WIFI_SERVICE);
+                                NetworkInfo networkInfo = intent.getParcelableExtra(WifiManager.EXTRA_NETWORK_INFO);
+                                NetworkInfo.State state = networkInfo.getState();
+                        /*
+                                ConnectivityManager connManager = (ConnectivityManager) mContext.getSystemService(Context.CONNECTIVITY_SERVICE);
+                                while(true){
+                                    NetworkInfo netinfo = connManager.getNetworkInfo(ConnectivityManager.TYPE_WIFI);
+                                    if(netinfo!=null){
+                                        if(netinfo.isConnected()) break;
+                                    }else{
+                                        Log.w("HandoffClient", "network info == null");
+                                    }
+                                }
+*/
+                                if(state == NetworkInfo.State.CONNECTED){
+                                    unregisterReceiver(this);
+                                    startB.setEnabled(true);
+                                    notifyOICClients(HandoffClient.INIT_OIC_STACK);
+                                }
+                            }
+                        }
+                    };
+                    IntentFilter filter = new IntentFilter(WifiManager.NETWORK_STATE_CHANGED_ACTION);
+                    registerReceiver(connectDetector, filter);
+                }
             }
-            //startScan();
-            return true;
+            //listUpdater.cancel();
+
+            if(id == R.id.action_server2){
+                //if(!isServer){
+
+                    isServer = true;
+                    mode.setText(R.string.mode_server2);
+                //}
+
+                //startBroadcast();
+                return true;
+            }else if(id == R.id.action_client2){
+                //if(isServer) {
+                    isServer = false;
+                    mode.setText(R.string.mode_client2);
+                //}
+                //startScan();
+                return true;
+            }
         }
         return super.onOptionsItemSelected(item);
     }
-
-    private void pause(int sec){
-        if (sec == 0) return;
-        try {
-            Thread.sleep(sec * 1000);
-        } catch (InterruptedException e) {
-            e.printStackTrace();
-        }
-    }
-
 
 }

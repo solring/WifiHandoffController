@@ -9,7 +9,7 @@
     android:paddingBottom="@dimen/activity_vertical_margin"
     tools:context=".MainActivity">
 
-    <LinearLayout
+    <RelativeLayout
         android:id="@+id/control"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
@@ -20,9 +20,11 @@
         android:id="@+id/text1"
         android:text="@string/mode_server"
         android:layout_alignBottom="@+id/button1"
+        android:layout_alignParentLeft="true"
+        android:layout_marginLeft="10dp"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:textSize="14pt"
+        android:textSize="10pt"
         android:padding="5pt"
         android:textColor="#ff6742ff" />
 
@@ -34,10 +36,11 @@
         android:layout_alignParentRight="true"
 
         android:layout_marginTop="7dp"
+        android:layout_marginRight="10dp"
         android:tag="send"
         android:text="@string/button_start" />
 
-    </LinearLayout>
+    </RelativeLayout>
 
     <TextView
         android:id="@+id/listtitle"
@@ -58,26 +61,32 @@
     <ScrollView
         android:id="@+id/scrollView"
         android:layout_width="fill_parent"
-        android:layout_height="200dp"
+        android:layout_height="fill_parent"
+        android:layout_below="@+id/button1"
+        android:layout_marginBottom="3dp"
+        android:layout_marginLeft="3dp"
+        android:layout_marginRight="3dp"
         android:layout_marginTop="3dp"
-        android:paddingBottom="16dp"
-        android:background="@color/orange"
         >
+
 
         <LinearLayout
             android:layout_width="fill_parent"
+            android:layout_height="300dp"
+            android:orientation="vertical">
+        <TextView
+            android:id="@+id/text2"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
 
-            android:orientation="vertical" >
+            android:layout_marginLeft="5dp"
+            android:layout_marginTop="18dp"
 
-            <TextView
-                android:id="@+id/text2"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text=" "
-                 />
+            android:scrollbars="vertical"
+            android:gravity="bottom"
+            android:text="-------Console-------\n"
+            />
         </LinearLayout>
     </ScrollView>
-
 
 </LinearLayout>

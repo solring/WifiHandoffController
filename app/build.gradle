@@ -27,8 +27,8 @@ android {
 
 dependencies {
     compile fileTree(dir: 'libs', include: ['*.jar'])
-    compile(name: 'alephProxyService-performance-armv7-debug', ext: 'aar')
+    //compile(name: 'alephProxyService-performance-armv7-debug', ext: 'aar')
+    compile(name: 'iotivity-armv7-release-performance', ext:'aar')
     //compile(name: 'alephProxyService-base-armv7-debug', ext: 'aar')
     //compile project(':proxyservice')
-    //compile(name:'proxyservice-arm-debug', ext:'aar')
 }

@@ -19,7 +19,7 @@ import java.util.concurrent.locks.ReentrantLock;
  */
 public class UIUpdateThread extends Thread {
 
-    private static int DEFAULT_PERIOD = 5000; //5 sec.
+    private static int DEFAULT_PERIOD = 5; //5 sec.
     private static String TAG = "UIUpdateThread";
 
     private boolean stop;
@@ -31,11 +31,11 @@ public class UIUpdateThread extends Thread {
     private ClientListAdapter clAdapter;
     private int period;
 
-    public UIUpdateThread(WifiApManager am, ClientListAdapter adapter, int millsec){
+    public UIUpdateThread(WifiApManager am, ClientListAdapter adapter, int sec){
         clAdapter = adapter;
         apManager = am;
         stop = false;
-        period = millsec;
+        period = sec;
         lock = new ReentrantLock();
         done = lock.newCondition();
     }
@@ -100,18 +100,13 @@ public class UIUpdateThread extends Thread {
                 lock.unlock();
             }
 
-
-            try {
-                Thread.sleep(period);
-            } catch (InterruptedException e) {
-                e.printStackTrace();
-            }
+            Util.sleep(period);
         }
     }
 
     public void runMTK(){
 
-        Log.v(TAG, "UP update thread started");
+        Log.v(TAG, "UI update thread started");
         while(!stop){
 
             Log.v(TAG, "scan wifi AP clients...");
@@ -128,12 +123,9 @@ public class UIUpdateThread extends Thread {
             }
 
             //sleep for period
-            try {
-                Thread.sleep(period);
-            } catch (InterruptedException e) {
-                e.printStackTrace();
-            }
+            Util.sleep(period);
         }
+        Log.v(TAG, "UI update thread stoped");
     }
 
     public void cancel(){
@@ -141,7 +133,7 @@ public class UIUpdateThread extends Thread {
     }
 
     public void setPeriod(int sec){
-        period = sec * 1000;
+        period = sec;
     }
 
     public void resetPeriod(){
