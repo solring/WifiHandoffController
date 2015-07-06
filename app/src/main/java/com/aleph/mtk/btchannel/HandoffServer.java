@@ -30,7 +30,7 @@ import java.util.HashMap;
 import java.util.UUID;
 
 
-public class HandoffServer extends Thread {
+public class HandoffServer extends Thread implements MyLogger{
 
     private boolean running;
     private boolean apmode;
@@ -41,11 +41,13 @@ public class HandoffServer extends Thread {
     private ArrayList<Negotiator> negotiators;
     private HashMap<String, ProxyService> proxyservices;
     private WifiConfiguration apconfig;
+    private HandoffImpl handoff;
 
+    public String ssid;
     public InfoCenter infocenter;
     public Handler uihandler;
 
-    public HandoffServer(Context context, Handler h, BluetoothAdapter adapter, WifiConfiguration config, InfoCenter ic, UUID uuid, Boolean mode){
+    public HandoffServer(Context context, Handler h, HandoffImpl impl, BluetoothAdapter adapter, WifiConfiguration config, InfoCenter ic, UUID uuid, Boolean mode){
         mContext = context;
         uihandler = h;
         btadapter = adapter;
@@ -54,6 +56,7 @@ public class HandoffServer extends Thread {
         apconfig = config;
         infocenter = ic;
         apmode = mode;
+        handoff = impl;
 
         negotiators = new ArrayList<Negotiator>();
         proxyservices = new HashMap<String, ProxyService>();
@@ -90,7 +93,7 @@ public class HandoffServer extends Thread {
                 if(socket==null) continue;
 
                 //New negotiator for each request
-                Negotiator session = new Negotiator(this, socket, apconfig);
+                Negotiator session = new Negotiator(this, socket, handoff);
 
                 negotiators.add(session);
                 session.start();
@@ -140,10 +143,10 @@ public class HandoffServer extends Thread {
                     }
                 }
                 //notifyOICClients(HandoffClient.INIT_OIC_STACK_PROXY);
-                notifyOICClientsDelay(HandoffClient.SOFTINIT_OIC_STACK_PROXY, 5);
+                notifyOICClientsDelay(HandoffImpl.SOFTINIT_OIC_STACK_PROXY, 5);
             }
         }else{
-            notifyOICClientsDelay(HandoffClient.INIT_OIC_STACK, 5);
+            notifyOICClientsDelay(HandoffImpl.INIT_OIC_STACK, 5);
         }
     }
 
@@ -151,13 +154,20 @@ public class HandoffServer extends Thread {
         printui("Handoff server: canceled.");
         running = false;
 
-        //Stop all negotiators
+        //Stop local clients
+        handoff.notifyOICClients(HandoffImpl.STOP_CLIENT);
+
+        //Stop all negotiators & make them notify proxy clients to enable hotspot
         for(Negotiator n : negotiators){
             n.cancel();
         }
+
+        //Stop all proxy
         for(ProxyService p: proxyservices.values()){
             p.stopProxy();
         }
+
+        //Stop BT server
         try {
             btserver.close();
         } catch (IOException e) {

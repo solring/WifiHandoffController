@@ -38,7 +38,7 @@ import java.util.Set;
 import java.util.UUID;
 
 
-public class MainActivity extends ListActivity implements View.OnClickListener{
+public class MainActivity extends ListActivity implements View.OnClickListener, MyLogger{
 
     private boolean start;
     private boolean isServer=true;
@@ -49,6 +49,7 @@ public class MainActivity extends ListActivity implements View.OnClickListener{
     private BroadcastReceiver ctrlReceiver;
     public HandoffServer hserver;
     public HandoffClient hclient;
+    public HandoffImpl handoff;
 
     private InfoCenter infocenter;
 
@@ -96,7 +97,7 @@ public class MainActivity extends ListActivity implements View.OnClickListener{
     public UIUpdateThread listUpdater;
     public ScrollView scroll;
 
-    class APFixThread extends Thread{
+    public class APFixThread extends Thread{
         public void run() {
 
             while(!apmanager.isWifiApEnabled()){} //simple pin lock
@@ -138,7 +139,7 @@ public class MainActivity extends ListActivity implements View.OnClickListener{
             runOnUiThread( new Thread(new Runnable() {
                     @Override
                     public void run() {
-                        notifyOICClients(HandoffClient.INIT_OIC_STACK);
+                        notifyOICClients(HandoffImpl.INIT_OIC_STACK);
                         if(startB!=null)startB.setEnabled(true);
                     }
                 })
@@ -182,6 +183,8 @@ public class MainActivity extends ListActivity implements View.OnClickListener{
         //btmanager = (BluetoothManager) getSystemService(Context.BLUETOOTH_SERVICE);
         //btadapter = btmanager.getAdapter();
         btadapter = BluetoothAdapter.getDefaultAdapter();
+
+        handoff = new HandoffImpl(this, apmanager, wifimanager, this);
 
         // Create a BroadcastReceiver for BT ACTION_FOUND
         mReceiver = new BroadcastReceiver() {
@@ -256,7 +259,7 @@ public class MainActivity extends ListActivity implements View.OnClickListener{
                         updateListTurbo();
                     }
                 }else {
-                    updateUI(msg.getData().getString(MSG_PRINT) + "\n");
+                    printui(msg.getData().getString(MSG_PRINT) + "\n");
                 }
                 super.handleMessage(msg);
             }
@@ -321,18 +324,18 @@ public class MainActivity extends ListActivity implements View.OnClickListener{
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent data){
         if (resultCode == Activity.RESULT_CANCELED) {
-            updateUI("onActivityResult: BT cannot be enabled.");
+            printui("onActivityResult: BT cannot be enabled.");
             return;
         }
 
         //if(requestCode==REQ_BT_SERVER) {
         if(isServer) {
-            updateUI("onActivityResult: BT enabled.");
+            printui("onActivityResult: BT enabled.");
             startServer();
 
             //}else if(requestCode == REQ_BT_CLIENT){
         }else{
-            updateUI("onActivityResult: BT enabled.");
+            printui("onActivityResult: BT enabled.");
             startClient();
         }
     }
@@ -354,8 +357,8 @@ public class MainActivity extends ListActivity implements View.OnClickListener{
         //int tmp = info.getIpAddress();
         //ipaddr = String.format("%d.%d.%d.%d", (tmp & 0xff), (tmp >> 8 & 0xff), (tmp >> 16 & 0xff), (tmp >> 24 & 0xff));
 
-        hserver = new HandoffServer(this, this.mHandler, btadapter, apConfig, infocenter, PROXY_UUID, APmode);
-        updateUI("onActivityResult: New handoff server thread");
+        hserver = new HandoffServer(this, this.mHandler, handoff, btadapter, apConfig, infocenter, PROXY_UUID, APmode);
+        printui("onActivityResult: New handoff server thread");
 
         hserver.start();
     }
@@ -374,13 +377,13 @@ public class MainActivity extends ListActivity implements View.OnClickListener{
     private void startClient(){
         // Find paired devices
         Set<BluetoothDevice> pairedDevices = btadapter.getBondedDevices();
-        updateUI("startScan: ---- List of paired devices ----");
+        printui("startScan: ---- List of paired devices ----");
 
         if (pairedDevices.size() > 0) {
             for (BluetoothDevice device : pairedDevices) {
                 // Add the name and address to an array adapter to show in a ListView
                 devices.add(device.getName() + "|" + device.getAddress());
-                updateUI("startScan: " + device.getName() + " | " + device.getAddress());
+                printui("startScan: " + device.getName() + " | " + device.getAddress());
 
                 //Try to connect proxy service
                 boolean res = connectProxy(device);
@@ -394,7 +397,7 @@ public class MainActivity extends ListActivity implements View.OnClickListener{
             IntentFilter filter = new IntentFilter(BluetoothDevice.ACTION_FOUND);
             registerReceiver(mReceiver, filter); // Don't forget to unregister during onDestroy
 
-            updateUI("startScan: No paired device. Start scan...");
+            printui("startScan: No paired device. Start scan...");
         }
     }
 
@@ -402,8 +405,8 @@ public class MainActivity extends ListActivity implements View.OnClickListener{
         //fixed server now
         if(device.getName().contains(PROXY_NAME)){
 
-            updateUI("try to connect proxy " + device.getName());
-            hclient = new HandoffClient(this, mHandler, device, apmanager, wifimanager, infocenter, PROXY_UUID, APmode);
+            printui("try to connect proxy " + device.getName());
+            hclient = new HandoffClient(this, mHandler, handoff, device, infocenter, PROXY_UUID, APmode);
 
             hclient.start();
 
@@ -429,7 +432,7 @@ public class MainActivity extends ListActivity implements View.OnClickListener{
         //btadapter.disable();
         startB.setText(R.string.button_start);
         start=false;
-        updateUI("Main: threads stopped");
+        printui("Main: threads stopped");
     }
 
     public void notifyOICClients(String action){
@@ -453,17 +456,22 @@ public class MainActivity extends ListActivity implements View.OnClickListener{
         try {
             unregisterReceiver(mReceiver);
         }catch(IllegalArgumentException e){
-            updateUI("tryUnregisterBTDiscover: receiver not registered");
+            printui("tryUnregisterBTDiscover: receiver not registered");
         }
     }
-
-    private void updateUI(String msg){
-        Log.v(TAG, msg);
-        SimpleDateFormat sdfDate = new SimpleDateFormat("(yyyy-MM-dd HH:mm:ss)");//dd/MM/yyyy
-        Date now = new Date();
-        String strDate = sdfDate.format(now);
-        tv.append(strDate + msg + '\n');
-        scroll.fullScroll(View.FOCUS_DOWN);
+    
+    public void printui(final String msg){
+        runOnUiThread(new Thread(new Runnable() {
+            @Override
+            public void run() {
+                Log.v(TAG, msg);
+                SimpleDateFormat sdfDate = new SimpleDateFormat("(yyyy-MM-dd HH:mm:ss)");//dd/MM/yyyy
+                Date now = new Date();
+                String strDate = sdfDate.format(now);
+                tv.append(strDate + msg + '\n');
+                scroll.fullScroll(View.FOCUS_DOWN);
+            }
+        }));
     }
 
     private void updateListTurbo(){
@@ -508,7 +516,7 @@ public class MainActivity extends ListActivity implements View.OnClickListener{
                 if (apmanager != null && !apmanager.isWifiApEnabled()) {
 
                     startB.setEnabled(false);
-                    notifyOICClients(HandoffClient.STOP_CLIENT);
+                    notifyOICClients(HandoffImpl.STOP_CLIENT);
 
                     apmanager.setWifiApEnabled(null, true);
                     new APFixThread().start();
@@ -540,7 +548,7 @@ public class MainActivity extends ListActivity implements View.OnClickListener{
 
                 if (apmanager != null && apmanager.isWifiApEnabled()) {
 
-                    notifyOICClients(HandoffClient.STOP_CLIENT);
+                    notifyOICClients(HandoffImpl.STOP_CLIENT);
                     startB.setEnabled(false);
 
                     apmanager.setWifiApEnabled(null, false);
@@ -568,7 +576,7 @@ public class MainActivity extends ListActivity implements View.OnClickListener{
                                 if(state == NetworkInfo.State.CONNECTED){
                                     unregisterReceiver(this);
                                     startB.setEnabled(true);
-                                    notifyOICClients(HandoffClient.INIT_OIC_STACK);
+                                    notifyOICClients(HandoffImpl.INIT_OIC_STACK);
                                 }
                             }
                         }

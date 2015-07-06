@@ -23,7 +23,7 @@ import java.util.ArrayList;
  */
 
 enum SState{
-    INIT, HANDSHAKE, EXCHANGING, CHECKING, SEND_RESULT, WAIT_ACK
+    INIT, HANDSHAKE, EXCHANGING, CHECKING, SEND_RESULT, WAIT_ACK, WAIT_HANDBACK
 }
 
 public class Negotiator extends Thread {
@@ -39,17 +39,20 @@ public class Negotiator extends Thread {
     //public ProxyService proxy;
     //private ArrayList<String> restypes;
     private JSONArray restypes;
+    private String remote_ssid;
+    private String remote_mac;
 
     //basic info
     private WifiConfiguration apconfig;
-
     HandoffServer hserver;
+    HandoffImpl handoff;
 
-    public Negotiator(HandoffServer s, BluetoothSocket _socket, WifiConfiguration config){
+    public Negotiator(HandoffServer s, BluetoothSocket _socket, HandoffImpl impl){
         running = false;
         hserver = s;
         socket = _socket;
-        apconfig = config;
+        //apconfig = config;
+        handoff = impl;
 
         state = SState.INIT;
     }
@@ -118,12 +121,12 @@ public class Negotiator extends Thread {
                                     remote = new JSONObject(buffer);
 
                                     //Whatever send the SSID first
-                                    ps.println(apconfig.SSID);   //send proxy local addr to client
+                                    ps.println(handoff.getApSSID());   //send proxy local addr to client
                                     ps.flush();
 
                                     //Check policy & get resource type
                                     result = checkPolicy(local, remote);
-                                    if(result.equals("ACCEPT")) hserver.notifyOICClients(HandoffClient.STOP_CLIENT);
+                                    if(result.equals("ACCEPT")) hserver.notifyOICClients(HandoffImpl.STOP_CLIENT);
 
                                     state = SState.SEND_RESULT;
                                 }catch(JSONException e){
@@ -160,7 +163,8 @@ public class Negotiator extends Thread {
                                         hserver.startProxyServices(restypes);
                                     }
 
-                                    running = false; //NEGOTIATION OVER
+                                    //running = false; //NEGOTIATION OVER
+                                    state = SState.WAIT_HANDBACK;
                                 }
                             }
                             else if(now - last > MainActivity.TIMEOUT){ //TIMEOUT
@@ -171,12 +175,44 @@ public class Negotiator extends Thread {
                             }
                             break;
 
+                        case WAIT_HANDBACK:
+                            //DO NOTHING BUT WAIT
+
                     } //end of switch
                 }//end of while
                 /************************* End Negotiator Main ************************************/
 
+                /************************* Try to Hand Back ************************************/
+
+                //Notify proxy client to enable hotspot
+                ps.println("HANDBACK");
+                ps.flush();
+                now = last = System.currentTimeMillis();
+                while(true) {
+                    now = System.currentTimeMillis();
+                    if(br.ready()) {
+                        buffer = br.readLine();
+                        hserver.printui("after WAIT_HANDBACK: rcv " + buffer);
+                        if (buffer.equalsIgnoreCase("ACK")) {
+                            break;
+                        }
+                    }
+                    else if(now - last > MainActivity.TIMEOUT){ //TIMEOUT
+                        if(retry < MainActivity.MAX_RETRY) {
+                            retry += 1;
+                            ps.println("HANDBACK");
+                            ps.flush();
+                        }else{
+                            break;
+                        }
+                    }
+                }
+
                 br.close();
                 socket.close();
+
+                //Notify all AP client to go back (except the proxy client)
+                handoff.notifyAllClients(remote_ssid, remote_mac);
 
                 //Log.d("BTChannel", "Negotiator: update ap client list faster");
                 //hserver.updateList();
@@ -212,6 +248,10 @@ public class Negotiator extends Thread {
             hserver.printui("JSON array: " + tmp);
             restypes = new JSONArray(tmp);
             //restypes = (ArrayList<String>)remote.get(InfoCenter.RES_TYPE);
+
+            //get remote info
+            remote_ssid = remote.getString(InfoCenter.SSID);
+            remote_mac = remote.getString(InfoCenter.MAC);
 
             int level = remote.getInt(InfoCenter.BATLEVEL);
             int client_num = remote.getInt(InfoCenter.WIFI_CLIENT_NUM);

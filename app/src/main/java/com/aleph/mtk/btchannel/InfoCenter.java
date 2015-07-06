@@ -33,6 +33,9 @@ public class InfoCenter extends Thread{
     public static final String IS_HEALTH_ON = "isHealthOn";
     public static final String IS_A2DP_ON = "isA2dpOn";
     public static final String RES_TYPE = "restype";
+    public static final String SSID = "SSID";
+    public static final String MAC = "macAddr";
+
 
     private Context mainContext;
     private boolean scanning;
@@ -46,6 +49,8 @@ public class InfoCenter extends Thread{
 
     //private ArrayList<String> restypes;
     private JSONArray restypes;
+    private String ssid;
+    private String mac;
 
     //indexes
     private int clientNum;
@@ -70,6 +75,8 @@ public class InfoCenter extends Thread{
         apm = _apm;
         btadapter = _btm;
         //bm = _bm;
+        ssid = "";
+        mac = "";
 
         clientNum = 0;
         scanning = A2dpOn = HealthOn = HfpOn = false;
@@ -92,6 +99,9 @@ public class InfoCenter extends Thread{
     public synchronized void setHfpOn(boolean res){ HfpOn = res; }
     public synchronized void setHealthOn(boolean res){ HealthOn = res; }
 
+    public synchronized void setSSID(String s) { ssid = s; }
+    public synchronized void setMac(String s) { mac = s; }
+
 
     public synchronized String getInfo(){
 
@@ -106,6 +116,8 @@ public class InfoCenter extends Thread{
             json.put(InfoCenter.IS_HEALTH_ON, this.HealthOn);
 
             json.put(InfoCenter.RES_TYPE, this.restypes.toString());
+            json.put(InfoCenter.SSID, this.ssid);
+            json.put(InfoCenter.MAC, this.mac);
 
         } catch (JSONException e) {
             e.printStackTrace();
