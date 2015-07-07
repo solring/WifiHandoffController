@@ -584,13 +584,15 @@ public class HandoffImpl {
 
     public void notifyOICClientsDelay(String action, int delaySec){
         printui("notify OIC Clients, action: "+action);
-        long trigger = SystemClock.elapsedRealtime() + delaySec * 1000;
 
         Intent notify = new Intent(action);
         PendingIntent pi = PendingIntent.getBroadcast(mContext, 1, notify, PendingIntent.FLAG_ONE_SHOT);
 
+        //long trigger = SystemClock.elapsedRealtime() + delaySec * 1000;
+        long trigger = System.currentTimeMillis() + delaySec * 1000;
         AlarmManager am  = (AlarmManager)mContext.getSystemService(Context.ALARM_SERVICE);
-        am.setExact(AlarmManager.ELAPSED_REALTIME_WAKEUP, trigger, pi);
+        //am.setExact(AlarmManager.ELAPSED_REALTIME_WAKEUP, trigger, pi);
+        am.setExact(AlarmManager.RTC_WAKEUP, trigger, pi);
     }
 
 

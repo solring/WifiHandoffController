@@ -12,6 +12,8 @@
     <string name="mode_client2">Proxy Client</string>
     <string name="button_stop">STOP</string>
     <string name="button_start">START</string>
+    <string name="ap_client_list">AP clients</string>
+    <string name="vr_list">Virtual Resources</string>
 
     <string name="start_handshake">START_HANDSHAKE</string>
     <string name="ack_handshake">ACK_HANDSHAKE</string>

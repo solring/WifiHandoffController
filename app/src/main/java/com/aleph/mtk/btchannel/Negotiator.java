@@ -35,6 +35,7 @@ public class Negotiator extends Thread {
     private InputStreamReader is;
     private PrintStream ps;
     private BufferedReader br;
+    private boolean apmode;
 
     //public ProxyService proxy;
     //private ArrayList<String> restypes;
@@ -47,12 +48,13 @@ public class Negotiator extends Thread {
     HandoffServer hserver;
     HandoffImpl handoff;
 
-    public Negotiator(HandoffServer s, BluetoothSocket _socket, HandoffImpl impl){
+    public Negotiator(HandoffServer s, BluetoothSocket _socket, HandoffImpl impl, boolean mode){
         running = false;
         hserver = s;
         socket = _socket;
         //apconfig = config;
         handoff = impl;
+        apmode = mode;
 
         state = SState.INIT;
     }
@@ -126,7 +128,7 @@ public class Negotiator extends Thread {
 
                                     //Check policy & get resource type
                                     result = checkPolicy(local, remote);
-                                    if(result.equals("ACCEPT")) hserver.notifyOICClients(HandoffImpl.STOP_CLIENT);
+                                    if(result.equals("ACCEPT")) handoff.notifyOICClients(HandoffImpl.STOP_CLIENT);
 
                                     state = SState.SEND_RESULT;
                                 }catch(JSONException e){
@@ -182,7 +184,7 @@ public class Negotiator extends Thread {
                 }//end of while
                 /************************* End Negotiator Main ************************************/
 
-                /************************* Try to Hand Back ************************************/
+                /************************* Try to Hand-back ************************************/
 
                 //Notify proxy client to enable hotspot
                 ps.println("HANDBACK");
@@ -196,8 +198,7 @@ public class Negotiator extends Thread {
                         if (buffer.equalsIgnoreCase("ACK")) {
                             break;
                         }
-                    }
-                    else if(now - last > MainActivity.TIMEOUT){ //TIMEOUT
+                    } else if(now - last > MainActivity.TIMEOUT){ //TIMEOUT
                         if(retry < MainActivity.MAX_RETRY) {
                             retry += 1;
                             ps.println("HANDBACK");
@@ -208,15 +209,18 @@ public class Negotiator extends Thread {
                     }
                 }
 
+                //Close BT connection
                 br.close();
                 socket.close();
 
                 //Notify all AP client to go back (except the proxy client)
-                handoff.notifyAllClients(remote_ssid, remote_mac);
+                if(hserver.apmode) {
+                    handoff.notifyAllClients(remote_ssid, remote_mac);
+                }
 
                 //Log.d("BTChannel", "Negotiator: update ap client list faster");
                 //hserver.updateList();
-                hserver.printui("Negotiator: end of negotiator, close socket.");
+                hserver.printui("Negotiator: end of negotiator, socket closed.");
 
             } catch (IOException e) {
                 hserver.printui("Negotiator: readline error");
@@ -276,6 +280,7 @@ public class Negotiator extends Thread {
         //return res;
         return "ACCEPT";
     }
+
 
     public void cancel(){
         hserver.printui("Negotiator: canceled.");

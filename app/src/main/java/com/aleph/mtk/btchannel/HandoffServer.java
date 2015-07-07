@@ -21,6 +21,7 @@ import android.util.Log;
 
 import com.whitebyte.wifihotspotutils.WifiApManager;
 
+import org.iotivity.base.OcResource;
 import org.json.JSONArray;
 import org.json.JSONException;
 
@@ -33,32 +34,34 @@ import java.util.UUID;
 public class HandoffServer extends Thread implements MyLogger{
 
     private boolean running;
-    private boolean apmode;
 
-    private Context mContext;
+    private MainActivity mContext;
     private BluetoothServerSocket btserver;
     private BluetoothAdapter btadapter;
     private ArrayList<Negotiator> negotiators;
+    private ArrayList<OcResource> trashBin;
     private HashMap<String, ProxyService> proxyservices;
-    private WifiConfiguration apconfig;
+    //private WifiConfiguration apconfig;
     private HandoffImpl handoff;
 
+    public boolean apmode;
     public String ssid;
     public InfoCenter infocenter;
     public Handler uihandler;
 
-    public HandoffServer(Context context, Handler h, HandoffImpl impl, BluetoothAdapter adapter, WifiConfiguration config, InfoCenter ic, UUID uuid, Boolean mode){
+    public HandoffServer(MainActivity context, Handler h, HandoffImpl impl, BluetoothAdapter adapter, InfoCenter ic, UUID uuid, Boolean mode){
         mContext = context;
         uihandler = h;
         btadapter = adapter;
         running = false;
         btserver = null;
-        apconfig = config;
+        //apconfig = config;
         infocenter = ic;
         apmode = mode;
         handoff = impl;
 
         negotiators = new ArrayList<Negotiator>();
+        trashBin = new ArrayList<OcResource>();
         proxyservices = new HashMap<String, ProxyService>();
 
         try{
@@ -93,7 +96,7 @@ public class HandoffServer extends Thread implements MyLogger{
                 if(socket==null) continue;
 
                 //New negotiator for each request
-                Negotiator session = new Negotiator(this, socket, handoff);
+                Negotiator session = new Negotiator(this, socket, handoff, apmode);
 
                 negotiators.add(session);
                 session.start();
@@ -122,7 +125,7 @@ public class HandoffServer extends Thread implements MyLogger{
     }
 
 
-    public void startProxyServices(JSONArray restypes){
+    synchronized public void startProxyServices(JSONArray restypes){
         //enable proxy service only on non-apmode now
         if(!apmode) {
             // make a proxy service thread for every resource types
@@ -137,16 +140,16 @@ public class HandoffServer extends Thread implements MyLogger{
                     printui("Accepted, start the proxy service with resource: " + res + "......");
                     //new and start proxy thread...
                     if (!proxyservices.containsKey(res)) {
-                        ProxyService proxy = new ProxyService(res, "0.0.0.0", 0, uihandler);
+                        ProxyService proxy = new ProxyService(res, "0.0.0.0", 0, uihandler, mContext.listAdapter);
                         proxy.start();
                         proxyservices.put(res, proxy);
                     }
                 }
                 //notifyOICClients(HandoffClient.INIT_OIC_STACK_PROXY);
-                notifyOICClientsDelay(HandoffImpl.SOFTINIT_OIC_STACK_PROXY, 5);
+                handoff.notifyOICClientsDelay(HandoffImpl.SOFTINIT_OIC_STACK_PROXY, 5);
             }
         }else{
-            notifyOICClientsDelay(HandoffImpl.INIT_OIC_STACK, 5);
+            handoff.notifyOICClientsDelay(HandoffImpl.INIT_OIC_STACK, 5);
         }
     }
 
@@ -175,22 +178,7 @@ public class HandoffServer extends Thread implements MyLogger{
         }
     }
 
-    public synchronized void notifyOICClients(String action){
-        printui("Handoff server: Notify all Iotivity clients ..." + action);
-        Intent notify = new Intent(action);
-        mContext.sendBroadcast(notify);
-    }
 
-    private void notifyOICClientsDelay(String action, int delaySec){
-        printui("notify OIC Clients, action: "+action);
-        long trigger = SystemClock.elapsedRealtime() + delaySec * 1000;
-
-        Intent notify = new Intent(action);
-        PendingIntent pi = PendingIntent.getBroadcast(mContext, 1, notify, PendingIntent.FLAG_ONE_SHOT);
-
-        AlarmManager am  = (AlarmManager)mContext.getSystemService(Context.ALARM_SERVICE);
-        am.setExact(AlarmManager.RTC_WAKEUP, trigger, pi);
-    }
 
     public synchronized void printui(String str){
         Message msg = new Message();

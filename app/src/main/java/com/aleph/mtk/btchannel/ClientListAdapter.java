@@ -39,7 +39,7 @@ public class ClientListAdapter extends BaseAdapter {
         devHash.put("14:1a:a3:8c:1a:30", "Nexus6");
     }
 
-    public synchronized void updateListView() {
+    synchronized public void updateListView() {
         Log.d("ListAdapter", "updateListView");
         mActivity.runOnUiThread(new Runnable() {
             public void run() {
@@ -50,20 +50,34 @@ public class ClientListAdapter extends BaseAdapter {
     }
 
     public void addItems(ArrayList<APClient> list){
-        clientList.clear();
-        clientList.addAll(list);
+        synchronized (clientList) {
+            clientList.clear();
+            clientList.addAll(list);
+        }
     }
 
     public void clear(){
         clientList.clear();
     }
 
-    public void addItem(String _mac, String _ip){
-        for(APClient c : clientList){
-            if(c.mac.equals(_mac)) return;
+    public void addItem(String _mac){
+        synchronized (clientList) {
+            for (APClient c : clientList) {
+                if (c.mac.equals(_mac)) return;
+            }
+            clientList.add(new APClient(_mac));
         }
-        clientList.add(new APClient(_mac));
     }
+
+    public void addItem(String _mac, String name){
+        synchronized (clientList) {
+            for (APClient c : clientList) {
+                if (c.mac.equals(_mac)) return;
+            }
+            clientList.add(new APClient(_mac, name));
+        }
+    }
+
 
     @Override
     public int getCount() {
@@ -108,6 +122,11 @@ public class ClientListAdapter extends BaseAdapter {
             mac = _mac;
             if(devHash.containsKey(_mac)) name = devHash.get(_mac);
             else name = "unknown";
+        }
+
+        public APClient(String _mac, String _name){
+            mac = _mac;
+            name = _name;
         }
     }
     

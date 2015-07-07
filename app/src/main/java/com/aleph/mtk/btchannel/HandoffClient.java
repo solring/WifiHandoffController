@@ -155,7 +155,8 @@ public class HandoffClient extends Thread implements MyLogger{
             } catch (IOException connectException) {
                 // Unable to connect; close the socket and get out
                 count++;
-                printui("ERROR: fail to connect the BT socket, retry..." + count);
+                //printui("ERROR: fail to connect the BT socket, retry..." + count);
+                Log.d(TAG, "ERROR: fail to connect the BT socket, retry..." + count);
                 Util.sleep(BT_RETRY_TIMEOUT);
             }
         }
@@ -186,8 +187,15 @@ public class HandoffClient extends Thread implements MyLogger{
                             return;
                         }
                         tryConnectBTServer();
-                        printui("connected to server.");
-                        state = CState.CONNECTING;
+
+                        if(ps!=null) {
+                            printui("connected to server.");
+                            state = CState.CONNECTING;
+                        }else{
+                            printui("ABORT: connected to server fail.");
+                            running = false;
+                        }
+                        break;
 
                     case CONNECTING: // proxy found, send pkt. to start handshake
                         ps.println("START_HANDSHAKE");
@@ -292,9 +300,12 @@ public class HandoffClient extends Thread implements MyLogger{
 
                                 //notify all OIC clients to stop
                                 handoff.notifyOICClients(HandoffImpl.STOP_CLIENT);
-
-                                //enable hotspot & restart OIC clients safely
-                                handoff.enableHotspotSafe();
+                                if(APmode) {
+                                    //enable hotspot & restart OIC clients safely
+                                    handoff.enableHotspotSafe();
+                                }else{
+                                    handoff.notifyOICClientsDelay(HandoffImpl.INIT_OIC_STACK, 5);
+                                }
 
                                 state = CState.CLOSE_BT_SOCK;
                             }

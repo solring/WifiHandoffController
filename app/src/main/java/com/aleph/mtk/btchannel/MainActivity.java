@@ -62,8 +62,8 @@ public class MainActivity extends ListActivity implements View.OnClickListener, 
     //public WidiReceiver wReceiver;
     public WifiManager wifimanager;
     public WifiApManager apmanager;
-    public String ssid;
-    WifiConfiguration apConfig;
+    //public String ssid;
+    //WifiConfiguration apConfig;
 
 
     //Static
@@ -75,8 +75,8 @@ public class MainActivity extends ListActivity implements View.OnClickListener, 
     private static final int REQ_BT_SERVER = 777;
     private static final int REQ_BT_CLIENT = 777;
     private static final int DISCOVERABLE_DURATION = 180;
-    public static int TIMEOUT = 5000;
-    public static int MAX_RETRY = 5;
+    public static int TIMEOUT = 1000;
+    public static int MAX_RETRY = 10;
     public static int UPDATE_PERIOD = 1; //1 SEC
     public final static String ACTION_START = "com.mtk.aleph.btchannel.START";
     public final static String ACTION_STOP = "com.mtk.aleph.btchannel.STOP";
@@ -93,7 +93,8 @@ public class MainActivity extends ListActivity implements View.OnClickListener, 
     public Button startB;
     public TextView tv;
     public TextView mode;
-    public ClientListAdapter mAdapter;
+    public TextView listtitle;
+    public ClientListAdapter listAdapter;
     public UIUpdateThread listUpdater;
     public ScrollView scroll;
 
@@ -177,7 +178,7 @@ public class MainActivity extends ListActivity implements View.OnClickListener, 
         //enable Wi-fi AP
         if(!apmanager.isWifiApEnabled())
             apmanager.setWifiApEnabled(null, true);
-        apConfig = apmanager.getWifiApConfiguration();
+        //apConfig = apmanager.getWifiApConfiguration();
 
         //get bt adapter
         //btmanager = (BluetoothManager) getSystemService(Context.BLUETOOTH_SERVICE);
@@ -234,12 +235,13 @@ public class MainActivity extends ListActivity implements View.OnClickListener, 
         filter.addAction(ACTION_TURBO_OFF);
         registerReceiver(ctrlReceiver, filter);
 
-        //initiate UI
+        //GUI init
         mode = (TextView) findViewById(R.id.text1);
         startB = (Button) findViewById(R.id.button1);
         startB.setOnClickListener(this);
         startB.setEnabled(false);
         tv = (TextView)findViewById(R.id.text2);
+        listtitle = (TextView) findViewById(R.id.listtitle);
         scroll = (ScrollView) findViewById(R.id.scrollView);
 
         mHandler = new Handler(){
@@ -253,8 +255,7 @@ public class MainActivity extends ListActivity implements View.OnClickListener, 
                         start = false;
                     }else if (tmp.equalsIgnoreCase(CMD_CLEARLIST)){
                         //if(listUpdater!=null) listUpdater.cancel();
-                        mAdapter.clear();
-                        mAdapter.updateListView();
+                        clearList();
                     }else if(tmp.equals(CMD_UPDATELIST)){
                         updateListTurbo();
                     }
@@ -266,8 +267,8 @@ public class MainActivity extends ListActivity implements View.OnClickListener, 
         };
 
         //list view & update thread
-        mAdapter = new ClientListAdapter(this);
-        setListAdapter(mAdapter);
+        listAdapter = new ClientListAdapter(this);
+        setListAdapter(listAdapter);
 
         //info center
         infocenter = new InfoCenter(this.getApplicationContext(), apmanager, btadapter);
@@ -294,7 +295,7 @@ public class MainActivity extends ListActivity implements View.OnClickListener, 
 
     public void onStart(){
         super.onStart();
-        listUpdater = new UIUpdateThread(apmanager, mAdapter, UPDATE_PERIOD);
+        listUpdater = new UIUpdateThread(apmanager, listAdapter, UPDATE_PERIOD);
         listUpdater.start();
 
         infocenter.updateInfo(); //update for the first time
@@ -357,7 +358,7 @@ public class MainActivity extends ListActivity implements View.OnClickListener, 
         //int tmp = info.getIpAddress();
         //ipaddr = String.format("%d.%d.%d.%d", (tmp & 0xff), (tmp >> 8 & 0xff), (tmp >> 16 & 0xff), (tmp >> 24 & 0xff));
 
-        hserver = new HandoffServer(this, this.mHandler, handoff, btadapter, apConfig, infocenter, PROXY_UUID, APmode);
+        hserver = new HandoffServer(this, this.mHandler, handoff, btadapter, infocenter, PROXY_UUID, APmode);
         printui("onActivityResult: New handoff server thread");
 
         hserver.start();
@@ -477,7 +478,7 @@ public class MainActivity extends ListActivity implements View.OnClickListener, 
     private void updateListTurbo(){
         Log.v(TAG, "updateListTurbo: update ap client list faster");
         listUpdater.cancel();
-        listUpdater = new UIUpdateThread(apmanager, mAdapter, 1);
+        listUpdater = new UIUpdateThread(apmanager, listAdapter, 1);
         listUpdater.start();
 
         Intent it = new Intent(ACTION_TURBO_OFF);
@@ -487,6 +488,11 @@ public class MainActivity extends ListActivity implements View.OnClickListener, 
         AlarmManager am = (AlarmManager) getSystemService(Context.ALARM_SERVICE);
         long now = SystemClock.elapsedRealtime();
         am.setExact(AlarmManager.ELAPSED_REALTIME_WAKEUP, now + 20, pit);
+    }
+
+    public void clearList(){
+        listAdapter.clear();
+        listAdapter.updateListView();
     }
 
     /**************** Override methods **************/
@@ -506,12 +512,19 @@ public class MainActivity extends ListActivity implements View.OnClickListener, 
         // as you specify a parent activity in AndroidManifest.xml.
         int id = item.getItemId();
         stopThreads();
+        clearList();
 
         /****************** AP(Hotspot) Mode *********************/
         if(id == R.id.action_client || id == R.id.action_server){
 
+            if(!APmode){
+                listUpdater = new UIUpdateThread(apmanager, listAdapter, UPDATE_PERIOD);
+                listUpdater.start();
+            }
+
             //if(!APmode) {
                 APmode = true;
+                listtitle.setText(R.string.ap_client_list);
 
                 if (apmanager != null && !apmanager.isWifiApEnabled()) {
 
@@ -521,8 +534,7 @@ public class MainActivity extends ListActivity implements View.OnClickListener, 
                     apmanager.setWifiApEnabled(null, true);
                     new APFixThread().start();
 
-                    //listUpdater = new UIUpdateThread(apmanager, mAdapter, UPDATE_PERIOD);
-                    //listUpdater.start();
+
                 }
             //}
 
@@ -545,6 +557,8 @@ public class MainActivity extends ListActivity implements View.OnClickListener, 
         }else{/****************** External AP Mode *********************/
             if(APmode) {
                 APmode = false;
+                listtitle.setText(R.string.vr_list);
+                listUpdater.cancel();
 
                 if (apmanager != null && apmanager.isWifiApEnabled()) {
 

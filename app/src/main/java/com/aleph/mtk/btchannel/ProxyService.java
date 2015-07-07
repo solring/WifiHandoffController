@@ -30,6 +30,7 @@ public class ProxyService extends Thread {
     public final static String TAG = "ProxyService";
     public final static int POLLING_PERIOD = 5;
     private Handler mHandler;
+    private ClientListAdapter listAdapter;
 
     HashMap<String, ProxyResource> proxies;
     String restype;
@@ -44,12 +45,14 @@ public class ProxyService extends Thread {
             String uri = ocResource.getUri();
 
             if(uri.contains("&host=1")) return;
-            printui("found origin resource: " + uri);
+            //printui("found origin resource: " + uri);
+            Log.d(TAG, "found origin resource: " + uri);
 
             if(proxies!=null && !proxies.isEmpty()) {
                 for (String k : proxies.keySet()) {
                     if (k.equalsIgnoreCase(uri)) {
-                        printui("resource already has proxy: " + uri);
+                        //printui("resource already has proxy: " + uri);
+                        Log.d(TAG, "resource already has proxy: " + uri);
                         return;
                     }
                 }
@@ -57,21 +60,26 @@ public class ProxyService extends Thread {
 
             // add new resource proxy
             ProxyResource p = new ProxyResource(restype, ocResource, 10, mHandler);
-            printui("new proxy resource");
             p.createResource();
-            printui("proxy resource registered");
+            //printui("proxy resource registered");
+            Log.d(TAG, "proxy resource registered");
             proxies.put(uri, p);
-            printui("resource added: " + uri);
+            printui("New resource added: " + uri);
 
+            if(listAdapter!=null){
+                listAdapter.addItem(uri, "");
+                listAdapter.updateListView();
+            }
         }
     };
 
-    public ProxyService(String rt, String intf, int p, Handler h){
+    public ProxyService(String rt, String intf, int p, Handler h, ClientListAdapter adapter){
         proxies = new HashMap<String, ProxyResource>();
         restype = rt;
         interFace = intf;
         port = p;
         mHandler = h;
+        listAdapter = adapter;
     }
 
     public void run(){
@@ -104,10 +112,17 @@ public class ProxyService extends Thread {
 
     public void stopProxy(){
         finding = false;
+        proxies.clear();
+        /*
         for(String uri : proxies.keySet()){
             ProxyResource res = proxies.get(uri);
             res.unregisterRes();
             res = null;
+        }
+        */
+        if(listAdapter!=null){
+            listAdapter.clear();
+            listAdapter.updateListView();
         }
     }
 

@@ -23,6 +23,7 @@ public class UIUpdateThread extends Thread {
     private static String TAG = "UIUpdateThread";
 
     private boolean stop;
+    private boolean apmode;
     private Lock lock;
     private Condition done;
     private boolean ready;
@@ -30,15 +31,6 @@ public class UIUpdateThread extends Thread {
     private WifiApManager apManager;
     private ClientListAdapter clAdapter;
     private int period;
-
-    public UIUpdateThread(WifiApManager am, ClientListAdapter adapter, int sec){
-        clAdapter = adapter;
-        apManager = am;
-        stop = false;
-        period = sec;
-        lock = new ReentrantLock();
-        done = lock.newCondition();
-    }
 
     public UIUpdateThread(WifiApManager am, ClientListAdapter adapter){
         clAdapter = adapter;
@@ -49,12 +41,22 @@ public class UIUpdateThread extends Thread {
         done = lock.newCondition();
     }
 
-    public void run(){
-        runMTK();
+    public UIUpdateThread(WifiApManager am, ClientListAdapter adapter, int sec){
+        this(am, adapter);
+        period = sec;
+        apmode = true;
+        lock = new ReentrantLock();
+        done = lock.newCondition();
     }
 
 
-    public void runNormal(){
+
+    public void run(){
+        if(apmode) runMTK();
+    }
+
+
+    private void runNormal(){
 
         Log.v(TAG, "UP update thread started");
         while(!stop){
@@ -104,7 +106,7 @@ public class UIUpdateThread extends Thread {
         }
     }
 
-    public void runMTK(){
+    private void runMTK(){
 
         Log.v(TAG, "UI update thread started");
         while(!stop){
@@ -118,8 +120,10 @@ public class UIUpdateThread extends Thread {
                 for (String c : clients) {
                     list.add(new ClientListAdapter.APClient(c));
                 }
-                clAdapter.addItems(list);
-                clAdapter.updateListView();
+                if(!stop){
+                    clAdapter.addItems(list);
+                    clAdapter.updateListView();
+                }
             }
 
             //sleep for period
@@ -127,6 +131,7 @@ public class UIUpdateThread extends Thread {
         }
         Log.v(TAG, "UI update thread stoped");
     }
+
 
     public void cancel(){
         stop = true;
