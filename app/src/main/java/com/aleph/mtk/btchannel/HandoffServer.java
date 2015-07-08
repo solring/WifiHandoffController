@@ -33,13 +33,18 @@ import java.util.UUID;
 
 public class HandoffServer extends Thread implements MyLogger{
 
+    /***********WORKAROUND***************
+     * To prevent crash due to releasing or unregister OcResource
+     ************************************/
+    private static HashMap<String, HashMap<String, ProxyResource>> trashBin = new HashMap<String, HashMap<String, ProxyResource>>();
+
     private boolean running;
 
     private MainActivity mContext;
     private BluetoothServerSocket btserver;
     private BluetoothAdapter btadapter;
     private ArrayList<Negotiator> negotiators;
-    private ArrayList<OcResource> trashBin;
+
     private HashMap<String, ProxyService> proxyservices;
     //private WifiConfiguration apconfig;
     private HandoffImpl handoff;
@@ -61,7 +66,6 @@ public class HandoffServer extends Thread implements MyLogger{
         handoff = impl;
 
         negotiators = new ArrayList<Negotiator>();
-        trashBin = new ArrayList<OcResource>();
         proxyservices = new HashMap<String, ProxyService>();
 
         try{
@@ -178,7 +182,21 @@ public class HandoffServer extends Thread implements MyLogger{
         }
     }
 
+    /******* WORKAROUND HELPER FUNCTION *******/
+    public static void putToBin(String restype, HashMap map){
+        if(!trashBin.containsKey(restype))
+            trashBin.put(restype, map);
+    }
 
+    public static HashMap getFromBin(String restype){
+        if(trashBin.containsKey(restype)) return trashBin.get(restype);
+        else return null;
+    }
+
+    public static void clearBin(){
+        trashBin.clear();
+    }
+    /******************************************/
 
     public synchronized void printui(String str){
         Message msg = new Message();
@@ -188,13 +206,13 @@ public class HandoffServer extends Thread implements MyLogger{
         uihandler.sendMessage(msg);
     }
 
+    /*
     public synchronized void updateList(){
         Message msg = new Message();
         Bundle data = new Bundle();
         data.putString(MainActivity.MSG_COMMAND, MainActivity.CMD_UPDATELIST );
         msg.setData(data);
         uihandler.sendMessage(msg);
-
-    }
+    }*/
 
 }

@@ -28,7 +28,7 @@ import java.util.HashMap;
 public class ProxyService extends Thread {
 
     public final static String TAG = "ProxyService";
-    public final static int POLLING_PERIOD = 5;
+    public final static int FINDING_PERIOD = 5;
     private Handler mHandler;
     private ClientListAdapter listAdapter;
 
@@ -74,12 +74,19 @@ public class ProxyService extends Thread {
     };
 
     public ProxyService(String rt, String intf, int p, Handler h, ClientListAdapter adapter){
-        proxies = new HashMap<String, ProxyResource>();
         restype = rt;
         interFace = intf;
         port = p;
         mHandler = h;
         listAdapter = adapter;
+
+        proxies = HandoffServer.getFromBin(restype);
+        if(proxies==null) proxies = new HashMap<String, ProxyResource>();
+
+        for(String k : proxies.keySet()){
+            listAdapter.addItem(k, "");
+        }
+        listAdapter.updateListView();
     }
 
     public void run(){
@@ -100,7 +107,7 @@ public class ProxyService extends Thread {
             try{
                 OcPlatform.findResource("", "coap://224.0.1.187/oc/core?rt=" + restype, resourceFoundListener);
 
-                Util.sleep(POLLING_PERIOD);
+                Util.sleep(FINDING_PERIOD);
 
             }catch(OcException e){
                 Log.e(TAG, "findResource ERROR");
@@ -112,14 +119,17 @@ public class ProxyService extends Thread {
 
     public void stopProxy(){
         finding = false;
-        proxies.clear();
+
+        HandoffServer.putToBin(restype, proxies);
         /*
         for(String uri : proxies.keySet()){
             ProxyResource res = proxies.get(uri);
-            res.unregisterRes();
-            res = null;
+            //res.unregisterRes();
+            //res = null;
         }
+        proxies.clear();
         */
+
         if(listAdapter!=null){
             listAdapter.clear();
             listAdapter.updateListView();

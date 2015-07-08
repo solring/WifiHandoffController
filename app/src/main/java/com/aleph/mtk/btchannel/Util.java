@@ -16,10 +16,4 @@ public class Util {
             e.printStackTrace();
         }
     }
-
-    private void waitOIC(){
-        this.sleep(10);
-    }
-
-
 }

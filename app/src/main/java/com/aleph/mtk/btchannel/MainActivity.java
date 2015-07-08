@@ -278,13 +278,24 @@ public class MainActivity extends ListActivity implements View.OnClickListener, 
     }
 
     protected void onDestroy(){
+
+        //Close list updater daemon
         listUpdater.cancel();
+
+        //Close BT discovery
         if(!isServer)
             tryUnregisterBTDiscover();
         unregisterReceiver(ctrlReceiver);
+
+        // Enable Wi-fi
         if(apmanager.isWifiApEnabled()) apmanager.setWifiApEnabled(null, false);
 
+        // Stop server/client threads
         stopThreads();
+
+        // WORKAROUND: clear buffered OcResource
+        HandoffServer.clearBin();
+
         super.onDestroy();
     }
 
@@ -315,7 +326,6 @@ public class MainActivity extends ListActivity implements View.OnClickListener, 
             }
 
         }else{
-
             //startB.setText(R.string.button_start);
             //start=false;
             stopThreads();

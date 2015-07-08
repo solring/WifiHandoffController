@@ -41,7 +41,8 @@ import java.util.List;
 
 public class ProxyResource extends Service {
 
-    public final static double DEFAULT_EXPIRE = 15000; //15 sec
+    public final static double DEFAULT_EXPIRE = 500;
+    //public final static double DEFAULT_EXPIRE = 15000; //15 sec
     public final static String TAG = "ProxyResource";
     public static final int ERROR_CODE = 200;
 
@@ -101,15 +102,6 @@ public class ProxyResource extends Service {
     }
 
 
-    public void unregisterRes(){
-
-        try {
-            OcPlatform.unregisterResource(mResourceHandle);
-        } catch (OcException e) {
-            Log.e(TAG, "unregisterResource ERROR:" + e.getMessage());
-        }
-    }
-
     public OcResourceHandle createResource()
     {
         Log.d(TAG, "createResource");
@@ -139,12 +131,25 @@ public class ProxyResource extends Service {
 
     }
 
-    /**
+    public void unregisterRes() {
+
+        try {
+            OcPlatform.unregisterResource(mResourceHandle);
+        } catch (OcException e) {
+            Log.e(TAG, "unregisterResource ERROR:" + e.getMessage());
+        }
+    }
+
+    public OcResource getResource(){
+        return origin;
+    }
+
+    /****************************************************************************
      * this is the main method which handles different incoming requests appropriately.
      * Init is not supported currently.
      * @param request OcResourceRequest from the client
      * @return EntityHandlerResult depending on whether the request was handled successfully or not
-     */
+     ****************************************************************************/
     private EntityHandlerResult entityHandler(OcResourceRequest request) {
         //logMessage("Request received in entityHandler");
         EntityHandlerResult result = EntityHandlerResult.ERROR;
@@ -262,6 +267,10 @@ public class ProxyResource extends Service {
         }
     }
 
+    /***********************************************************
+     * Helper function for onGetCompleted
+     * Send the responses from the origin resource to clients
+     **********************************************************/
     private void sendGetResponses(OcRepresentation rep, int eCode){
 
         OcRepresentation tmp = rep;

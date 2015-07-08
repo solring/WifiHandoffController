@@ -44,6 +44,7 @@ public class HandoffImpl {
     public final static String INIT_OIC_STACK_PROXY = "org.iotivity.base.examples.INIT_OIC_STACK_PROXY";
     public final static String STOP_CLIENT = "org.iotivity.base.examples.STOP_CLIENT";
     public final static String SOFTINIT_OIC_STACK_PROXY = "org.iotivity.base.examples.SOFTINIT_OIC_STACK_PROXY";
+    public final static String SOFTINIT_OIC_STACK = "org.iotivity.base.examples.SOFTINIT_OIC_STACK";
 
     public final static int REINIT_DELAY = 3;
 

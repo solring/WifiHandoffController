@@ -229,7 +229,7 @@ public class HandoffClient extends Thread implements MyLogger{
 
                     case EXCHANGING:
                         //stop local clients first
-                        handoff.notifyOICClients(HandoffImpl.STOP_CLIENT);
+                        if(APmode)handoff.notifyOICClients(HandoffImpl.STOP_CLIENT);
 
                         //client send info to server first
                         String info = infocenter.getInfo();
@@ -282,7 +282,8 @@ public class HandoffClient extends Thread implements MyLogger{
                             handoff.handOffWifi(ssid);
                             closeAPlist();
                         }else{
-                            handoff.notifyOICClientsDelay(HandoffImpl.SOFTINIT_OIC_STACK_PROXY, 5);
+                            handoff.notifyOICClients(HandoffImpl.SOFTINIT_OIC_STACK_PROXY);
+                            //handoff.notifyOICClientsDelay(HandoffImpl.SOFTINIT_OIC_STACK_PROXY, 5);
                         }
                         // cannot notify OIC reinit stack after hand-off here?
 
@@ -304,7 +305,8 @@ public class HandoffClient extends Thread implements MyLogger{
                                     //enable hotspot & restart OIC clients safely
                                     handoff.enableHotspotSafe();
                                 }else{
-                                    handoff.notifyOICClientsDelay(HandoffImpl.INIT_OIC_STACK, 5);
+                                    handoff.notifyOICClients(HandoffImpl.SOFTINIT_OIC_STACK);
+                                    //handoff.notifyOICClientsDelay(HandoffImpl.INIT_OIC_STACK, 5);
                                 }
 
                                 state = CState.CLOSE_BT_SOCK;
